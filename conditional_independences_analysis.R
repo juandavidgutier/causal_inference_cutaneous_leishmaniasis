@@ -25,7 +25,15 @@ qbo -> outbreak
 epac -> Temperature 
 epac -> outbreak 
 
-Forest -> outbreak 
+qbo -> wpac
+qbo -> epac
+wpac -> qbo
+wpac -> epac
+epac -> qbo
+epac -> wpac
+
+Forest -> outbreak
+Forest -> Temperature
 Temperature -> outbreak}')  
 
 plot(dag_temp)
