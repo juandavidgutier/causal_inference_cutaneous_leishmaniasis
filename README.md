@@ -4,7 +4,7 @@ Causal association of environmental variables on the occurrence of outbreaks of 
 
 ## Description
 
-Code shared of the paper "Causal association of environmental variables on the occurrence of outbreaks of cutaneous leishmaniasis in Colombia: Are we looking to the wrong side?". Note that you need an user and password to download data from NASA GIOVANNI 
+Code shared to download data from NASA GIOVANNI and reproduce causal inference analysis of the paper "Causal association of environmental variables on the occurrence of outbreaks of cutaneous leishmaniasis in Colombia: Are we looking to the wrong side?". Note that you need an user and password to download data from NASA GIOVANNI 
 
 
 ## Dependencies
