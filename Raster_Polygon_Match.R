@@ -32,7 +32,7 @@ final_position_of_month_in_name = 6
 variables <- c("Qs_acc", "SoilTMP0_10cm_inst", "SoilMoi0_10cm_inst", "Rainf_tavg", "Tair_f_inst")
 
 #Directory with .nc4 files
-dir = "D:/downloads/"
+dir = "D:/"
 #Paht for the shape file of Colombia
 munShapePath <- "D:/Municipios wgs84_Disolv.shp"
 #Path to save data

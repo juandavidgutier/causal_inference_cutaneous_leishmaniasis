@@ -195,7 +195,7 @@ estimate_temp = DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discr
 
 estimate_temp = estimate_temp.dowhy
 
-# fit the CATE model
+# fit the model
 estimate_temp.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
 
 # predict effect for each sample X
@@ -214,12 +214,6 @@ print(ci_Temperature)
 #with random common cause
 random_Temperature = estimate_temp.refute_estimate(method_name="random_common_cause", random_state=123)
 print(random_Temperature)
-
-##with add unobserved common cause
-unobserved_Temperature = estimate_temp.refute_estimate(method_name="add_unobserved_common_cause", 
-                                                       effect_strength_on_treatment=0.005, effect_strength_on_outcome=0.005,
-                                                       confounders_effect_on_outcome="binary_flip")
-print(unobserved_Temperature)
 
 #with replace a random subset of the data
 subset_Temperature = estimate_temp.refute_estimate(method_name="data_subset_refuter", subset_fraction=0.8, num_simulations=3)
@@ -333,7 +327,7 @@ estimate_soiltemp = DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), d
 
 estimate_soiltemp = estimate_soiltemp.dowhy
 
-# fit the CATE model
+# fit the model
 estimate_soiltemp.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
 
 # predict effect for each sample X
@@ -351,12 +345,6 @@ print(ci_SoilTemperature)
 #with random common cause
 random_SoilTemperature = estimate_soiltemp.refute_estimate(method_name="random_common_cause", random_state=123)
 print(random_SoilTemperature)
-
-##with add unobserved common cause
-unobserved_SoilTemperature = estimate_soiltemp.refute_estimate(method_name="add_unobserved_common_cause", 
-                                                               effect_strength_on_treatment=0.005, effect_strength_on_outcome=0.005,
-                                                               confounders_effect_on_outcome="binary_flip")
-print(unobserved_SoilTemperature)
 
 #with replace a random subset of the data
 subset_SoilTemperature = estimate_soiltemp.refute_estimate(method_name="data_subset_refuter", subset_fraction=0.8, num_simulations=3)
@@ -464,7 +452,7 @@ estimate_rain = SparseLinearDML(model_y=reg1(), model_t=reg2(), discrete_treatme
 
 estimate_rain = estimate_rain.dowhy
 
-# fit the CATE model
+# fit the model
 estimate_rain.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
 
 # predict effect for each sample X
@@ -482,11 +470,6 @@ print(ci_Rain)
 #with random common cause
 random_Rain = estimate_rain.refute_estimate(method_name="random_common_cause", random_state=123)
 print(random_Rain)
-
-##with add unobserved common cause
-unobserved_Rain = estimate_rain.refute_estimate(method_name="add_unobserved_common_cause", effect_strength_on_treatment=0.005, 
-                                                effect_strength_on_outcome=0.005, confounders_effect_on_outcome="binary_flip")
-print(unobserved_Rain)
 
 #with replace a random subset of the data
 subset_Rain = estimate_rain.refute_estimate(method_name="data_subset_refuter", subset_fraction=0.8, num_simulations=3)
@@ -597,7 +580,7 @@ estimate_runoff = DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), dis
 
 estimate_runoff = estimate_runoff.dowhy
 
-# fit the CATE model
+# fit the model
 estimate_runoff.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
 
 # predict effect for each sample X
@@ -615,11 +598,6 @@ print(ci_Runoff)
 #with random common cause
 random_Runoff = estimate_runoff.refute_estimate(method_name="random_common_cause", random_state=123)
 print(random_Runoff)
-
-##with add unobserved common cause
-unobserved_Runoff = estimate_runoff.refute_estimate(method_name="add_unobserved_common_cause", effect_strength_on_treatment=0.005, 
-                                                    effect_strength_on_outcome=0.005, confounders_effect_on_outcome="binary_flip")
-print(unobserved_Runoff)
 
 #with replace a random subset of the data
 subset_Runoff = estimate_runoff.refute_estimate(method_name="data_subset_refuter", subset_fraction=0.8, num_simulations=3)
@@ -730,7 +708,7 @@ estimate_soilmoist = SparseLinearDML(model_y=reg1(), model_t=reg2(), discrete_tr
 
 estimate_soilmoist = estimate_soilmoist.dowhy
 
-# fit the CATE model
+# fit the model
 estimate_soilmoist.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
 
 # predict effect for each sample X
@@ -748,11 +726,6 @@ print(ci_Soilmoist)
 #with random common cause
 random_Soilmoist = estimate_soilmoist.refute_estimate(method_name="random_common_cause", random_state=123)
 print(random_Soilmoist)
-
-##with add unobserved common cause
-unobserved_Soilmoist = estimate_soilmoist.refute_estimate(method_name="add_unobserved_common_cause", effect_strength_on_treatment=0.005, 
-                                                          effect_strength_on_outcome=0.005, confounders_effect_on_outcome="binary_flip")
-print(unobserved_Soilmoist)
 
 #with replace a random subset of the data
 subset_Soilmoist = estimate_soilmoist.refute_estimate(method_name="data_subset_refuter", subset_fraction=0.8, num_simulations=3)
@@ -864,7 +837,7 @@ estimate_EVI = SparseLinearDML(model_y=reg1(), model_t=reg2(), discrete_treatmen
 
 estimate_EVI = estimate_EVI.dowhy
 
-# fit the CATE model
+# fit the model
 estimate_EVI.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
 
 # predict effect for each sample X
@@ -882,11 +855,6 @@ print(ci_EVI)
 #with random common cause
 random_EVI = estimate_EVI.refute_estimate(method_name="random_common_cause", random_state=123)
 print(random_EVI)
-
-##with add unobserved common cause
-unobserved_EVI = estimate_EVI.refute_estimate(method_name="add_unobserved_common_cause", effect_strength_on_treatment=0.005,
-                                              effect_strength_on_outcome=0.005, confounders_effect_on_outcome="binary_flip")
-print(unobserved_EVI)
 
 #with replace a random subset of the data
 subset_EVI = estimate_EVI.refute_estimate(method_name="data_subset_refuter", subset_fraction=0.8, num_simulations=3)
