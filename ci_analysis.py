@@ -1,6 +1,6 @@
 ###############################################################################
 # Code for the paper:
-#   "Causal association of environmental variables on the occurrence of excess_casess of 
+#   "Causal association of environmental variables on the occurrence of excesss of 
 #    cutaneous leishmaniasis in Colombia: Are we looking to the wrong side?"
 #    Gutiérrez, Avila and Altamiranda 
 #   
@@ -30,7 +30,6 @@ import econml
 from econml.dml import DML
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import LassoCV
-from sklearn.ensemble import GradientBoostingRegressor, GradientBoostingClassifier
 from zepid.graphics import EffectMeasurePlot
 import matplotlib.pyplot as plt
 from lightgbm import LGBMRegressor
@@ -51,18 +50,21 @@ from sklearn.model_selection import train_test_split
 from econml.dml import CausalForestDML
 from joblib import Parallel, delayed
 import warnings
-from econml.dml import KernelDML
+from xgboost import XGBRegressor, XGBClassifier
+from plotnine import ggplot, aes, geom_line, geom_ribbon, ggtitle, labs, geom_point, geom_hline, theme_linedraw, theme, element_rect, theme_light, element_line, element_text
+
+
 
 
 
 # Set seeds to make the results more reproducible
-def seed_everything(seed=123):
+def seed_everything(seed=999):
     random.seed(seed)
     np.random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
     os.environ['TF_DETERMINISTIC_OPS'] = '1'
 
-seed = 123
+seed = 999
 seed_everything(seed)
 warnings.filterwarnings('ignore')
 pd.set_option('display.float_format', lambda x: '%.2f' % x)
@@ -70,106 +72,84 @@ pd.set_option('display.float_format', lambda x: '%.2f' % x)
 
 
 
+#%%#
+# Create data frame of ATE results
+df_ATE = pd.DataFrame(0, index=range(0, 6), columns=['ATE', '95% CI'])
+
+# Convert the first column to numpy.float64
+df_ATE['ATE'] = df_ATE['ATE'].astype(np.float64)
+
+# Convert the second column to tuples of zeros
+df_ATE['95% CI'] = [(0.0, 0.0)] * 6
+
+# Display the DataFrame
+print(df_ATE)
+
+
+#%%#
+
 #import data
-data_col = pd.read_csv("https://raw.githubusercontent.com/juandavidgutier/causal_inference_cutaneous_leishmaniasis/main/dataset_leish.csv", encoding='latin-1') 
+#data_col = pd.read_csv("https://raw.githubusercontent.com/juandavidgutier/causal_inference_cutaneous_leishmaniasis/main/dataset_leish.csv", encoding='latin-1') 
 
-#z-score
-data_col.SST3 = stats.zscore(data_col.SST3, nan_policy='omit') 
-data_col.SST4 = stats.zscore(data_col.SST4, nan_policy='omit')
-data_col.SST34 = stats.zscore(data_col.SST34, nan_policy='omit') 
-data_col.SST12 = stats.zscore(data_col.SST12, nan_policy='omit') 
-data_col.Equatorial_SOI = stats.zscore(data_col.Equatorial_SOI, nan_policy='omit')
-data_col.SOI = stats.zscore(data_col.SOI, nan_policy='omit') 
-data_col.NATL = stats.zscore(data_col.NATL, nan_policy='omit')
-data_col.SATL = stats.zscore(data_col.SATL, nan_policy='omit')  
-data_col.TROP = stats.zscore(data_col.TROP, nan_policy='omit')
-data_col.forest_percent = stats.zscore(data_col.forest_percent, nan_policy='omit')
+#import dask.dataframe as dd
+
+data_col = pd.read_csv("D:/clases/UDES/articulo leishmaniasis/causal_inference/nuevo/data_final.csv", encoding='latin-1') 
+#data_col = dd.read_csv("D:/clases/UDES/articulo leishmaniasis/causal_inference/nuevo/data_final.csv") 
 
 
-data_col = data_col.dropna()
+data_col = data_col[(data_col['Year'] <= 2019)]
+
+#potential confounders as binary
+data_col['SST3'] = pd.qcut(data_col['SST3'], 2, labels=False)
+data_col['SST4'] = pd.qcut(data_col['SST4'], 2, labels=False)
+data_col['SST34'] = pd.qcut(data_col['SST34'], 2, labels=False)
+data_col['SST12'] = pd.qcut(data_col['SST12'], 2, labels=False)
+data_col['SOI'] = pd.qcut(data_col['SOI'], 2, labels=False)
+data_col['NATL'] = pd.qcut(data_col['NATL'], 2, labels=False)
+data_col['SATL'] = pd.qcut(data_col['SATL'], 2, labels=False)
+data_col['TROP'] = pd.qcut(data_col['TROP'], 2, labels=False)
+data_col['vectors'] = pd.qcut(data_col['vectors'], 2, labels=False)
+data_col['forest'] = pd.qcut(data_col['forest'], 2, labels=False)
 
 
-#temperature
-Colombia_temp = data_col[['excess_cases', 'Temperature', 'SOI', 'Equatorial_SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 'TROP', 'forest_percent']] 
-#soil temperature
-Colombia_soiltemp = data_col[['excess_cases', 'SoilTMP0_10cm', 'SOI', 'Equatorial_SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 'TROP', 'forest_percent']] 
-#rainfall
-Colombia_rainfall = data_col[['excess_cases', 'Rainfall', 'SOI', 'Equatorial_SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 'TROP', 'forest_percent']] 
-#runoff
-Colombia_runoff = data_col[['excess_cases', 'Qs', 'SOI', 'Equatorial_SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 'TROP', 'forest_percent']] 
-#soil moisture
-Colombia_soilmoisture = data_col[['excess_cases', 'SoilMoi0_10cm', 'SOI', 'Equatorial_SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 'TROP', 'forest_percent']] 
+
+#%%#
+reg1 = lambda: XGBClassifier(n_estimators=1000, random_state=999)
+reg2 = lambda: XGBRegressor(n_estimators=1000, random_state=999)
+
+
+#%%#
+#Air Temperature
+Colombia_airtemp = data_col[['excess', 'lag1_excess', 'lag2_excess', 'lag3_excess', 'Temp', 'SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 'TROP', 'forest', 'Year', 'Month', 'vectors']] 
+Colombia_airtemp = Colombia_airtemp.dropna()
+#Soil Temperature
+Colombia_soiltemp = data_col[['excess', 'lag1_excess', 'lag2_excess', 'lag3_excess', 'Soil_temp', 'SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 'TROP', 'forest', 'Year', 'Month', 'vectors']] 
+Colombia_soiltemp = Colombia_soiltemp.dropna()
+#Rainfall
+Colombia_rain = data_col[['excess', 'lag1_excess', 'lag2_excess', 'lag3_excess', 'Rain', 'SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 'TROP', 'forest', 'Year', 'Month', 'vectors']] 
+Colombia_rain = Colombia_rain.dropna()
+#Runoff
+Colombia_runoff = data_col[['excess', 'lag1_excess', 'lag2_excess', 'lag3_excess', 'Qs', 'SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 'TROP', 'forest', 'Year', 'Month', 'vectors']] 
+Colombia_runoff = Colombia_runoff.dropna()
+#Soil Moisture
+Colombia_soilmoist = data_col[['excess', 'lag1_excess', 'lag2_excess', 'lag3_excess', 'Soil_mois', 'SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 'TROP', 'forest', 'Year', 'Month', 'vectors']] 
+Colombia_soilmoist = Colombia_soilmoist.dropna()
 #EVI
-Colombia_EVI = data_col[['excess_cases', 'EVI', 'SOI', 'Equatorial_SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 'TROP', 'forest_percent']] 
+Colombia_EVI = data_col[['excess', 'lag1_excess', 'lag2_excess', 'lag3_excess', 'EVI', 'SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 'TROP', 'forest', 'Year', 'Month', 'vectors']] 
+Colombia_EVI = Colombia_EVI.dropna()
 
+#%%#
 
-###############################################################################
-#####Temperature
-
-Y = Colombia_temp.excess_cases.to_numpy() #Y = data_card['incidencia100k_cardiovasculares'].values
-T = Colombia_temp.Temperature.to_numpy()
-W = Colombia_temp[['SOI', 'Equatorial_SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 'TROP', 'forest_percent']].to_numpy().reshape(-1, 10)
-X = Colombia_temp[['forest_percent']].to_numpy()
-
-
-#Model Selection for Causal Effect Model with the RScorer
-# A multitude of possible approaches for CATE estimation under conditional exogeneity
-
-
-X_train, X_val, T_train, T_val, Y_train, Y_val, W_train, W_val = train_test_split(X, T, Y, W, test_size=.4)
-
-#%load_ext bootstrapreload
-#%bootstrapreload 2
-
-## Ignore warnings
-warnings.filterwarnings('ignore') 
-
-reg1 = lambda: GradientBoostingClassifier(n_estimators=2000, random_state=123)
-reg2 = lambda: GradientBoostingRegressor(n_estimators=2000, random_state=123)
-
-models = [
-        ('ldml', LinearDML(model_y=reg1(), model_t=reg2(), discrete_treatment=False,
-                             linear_first_stages=False, cv=3, random_state=123)),
-        ('sldml', SparseLinearDML(model_y=reg1(), model_t=reg2(), discrete_treatment=False,
-                                    featurizer=PolynomialFeatures(degree=2, include_bias=False),
-                                    linear_first_stages=False, cv=3, random_state=123)),
-        ('dml', DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
-                             featurizer=PolynomialFeatures(degree=3),
-                             linear_first_stages=False, cv=3, random_state=123)),
-        ('forest', CausalForestDML(model_y=reg1(), model_t=reg2(), featurizer=PolynomialFeatures(degree=3), 
-                             discrete_treatment=False, cv=3, random_state=123)),
-        ('kernel', KernelDML(model_y=reg1(), model_t=reg2(),
-                             cv=3, random_state=123)),
-                 
-         ]
-
-
-def fit_model(name, model):
-    return name, model.fit(Y_train, T_train, X=X_train, W=W_train)
-
-models = Parallel(n_jobs=-1, verbose=1, backend="threading")(delayed(fit_model)(name, mdl) for name, mdl in models)
-
-#Choose model with highest RScore
-scorer = RScorer(model_y=reg1(), model_t=reg2(),
-                 discrete_treatment=False, cv=3,
-                 mc_iters=3, mc_agg='median')
-
-scorer.fit(Y_val, T_val, X=X_val, W=W_val)
-
-
-rscore = [scorer.score(mdl) for _, mdl in models]
-print(rscore)#best model CausalForestDML
-
+##Air Temperature
 
 #Step 1: Modeling the causal mechanism
 model_leish=CausalModel(
-        data = Colombia_temp,
-        treatment=['Temperature'],
-        outcome=['excess_cases'],
-        graph= """graph[directed 1 node[id "Temperature" label "Temperature"]
-                    node[id "excess_cases" label "excess_cases"]
+        data = Colombia_airtemp,
+        treatment=['Temp'],
+        outcome=['excess'],
+        graph= """graph[directed 1 node[id "Temp" label "Temp"]
+                    node[id "excess" label "excess"]
                     node[id "SOI" label "SOI"]
-                    node[id "Equatorial_SOI" label "Equatorial_SOI"]
                     node[id "SST3" label "SST3"]               
                     node[id "SST4" label "SST4"]
                     node[id "SST34" label "SST34"]
@@ -177,39 +157,60 @@ model_leish=CausalModel(
                     node[id "NATL" label "NATL"]
                     node[id "SATL" label "SATL"]
                     node[id "TROP" label "TROP"]                                      
-                    node[id "forest_percent" label "forest_percent"]
+                    node[id "forest" label "forest"]
+                    node[id "Year" label "Year"]
+                    node[id "Month" label "Month"]
+                    node[id "vectors" label "vectors"]
                                        
-                    edge[source "SOI" target "Temperature"]
-                    edge[source "SOI" target "excess_cases"]
+                    edge[source "SOI" target "Temp"]
+                    edge[source "SOI" target "excess"]
+                                     
+                    edge[source "SST3" target "Temp"]
+                    edge[source "SST3" target "excess"]
                     
-                    edge[source "Equatorial_SOI" target "Temperature"]
-                    edge[source "Equatorial_SOI" target "excess_cases"]
+                    edge[source "SST4" target "Temp"]
+                    edge[source "SST4" target "excess"]
                     
-                    edge[source "SST3" target "Temperature"]
-                    edge[source "SST3" target "excess_cases"]
+                    edge[source "SST34" target "Temp"]
+                    edge[source "SST34" target "excess"]
                     
-                    edge[source "SST4" target "Temperature"]
-                    edge[source "SST4" target "excess_cases"]
+                    edge[source "SST12" target "Temp"]
+                    edge[source "SST12" target "excess"]
                     
-                    edge[source "SST34" target "Temperature"]
-                    edge[source "SST34" target "excess_cases"]
+                    edge[source "NATL" target "Temp"]
+                    edge[source "NATL" target "excess"]
                     
-                    edge[source "SST12" target "Temperature"]
-                    edge[source "SST12" target "excess_cases"]
+                    edge[source "SATL" target "Temp"]
+                    edge[source "SATL" target "excess"]
                     
-                    edge[source "NATL" target "Temperature"]
-                    edge[source "NATL" target "excess_cases"]
-                    
-                    edge[source "SATL" target "Temperature"]
-                    edge[source "SATL" target "excess_cases"]
-                    
-                    edge[source "TROP" target "Temperature"]
-                    edge[source "TROP" target "excess_cases"]
+                    edge[source "TROP" target "Temp"]
+                    edge[source "TROP" target "excess"]
                                                       
-                    edge[source "forest_percent" target "Temperature"]
-                    edge[source "forest_percent" target "excess_cases"]
+                    edge[source "forest" target "Temp"]
+                    edge[source "forest" target "excess"]
                     
-                    edge[source "SOI" target "Equatorial_SOI"]
+                    edge[source "Year" target "Temp"]
+                    edge[source "Year" target "excess"]
+                    edge[source "Year" target "SST3"]
+                    edge[source "Year" target "SST4"]
+                    edge[source "Year" target "SST34"]
+                    edge[source "Year" target "SST12"]
+                    edge[source "Year" target "NATL"]
+                    edge[source "Year" target "SATL"]
+                    edge[source "Year" target "TROP"]
+                    edge[source "Year" target "SOI"]
+                    
+                    edge[source "Month" target "Temp"]
+                    edge[source "Month" target "excess"]
+                    edge[source "Month" target "SST3"]
+                    edge[source "Month" target "SST4"]
+                    edge[source "Month" target "SST34"]
+                    edge[source "Month" target "SST12"]
+                    edge[source "Month" target "NATL"]
+                    edge[source "Month" target "SATL"]
+                    edge[source "Month" target "TROP"]
+                    edge[source "Month" target "SOI"]
+                                        
                     edge[source "SOI" target "SST3"]
                     edge[source "SOI" target "SST4"]
                     edge[source "SOI" target "SST34"]
@@ -217,15 +218,7 @@ model_leish=CausalModel(
                     edge[source "SOI" target "NATL"]
                     edge[source "SOI" target "SATL"]
                     edge[source "SOI" target "TROP"]
-                    
-                    edge[source "Equatorial_SOI" target "SST3"]
-                    edge[source "Equatorial_SOI" target "SST4"]
-                    edge[source "Equatorial_SOI" target "SST34"]
-                    edge[source "Equatorial_SOI" target "SST12"]
-                    edge[source "Equatorial_SOI" target "NATL"]
-                    edge[source "Equatorial_SOI" target "SATL"]
-                    edge[source "Equatorial_SOI" target "TROP"]
-                    
+                                       
                     edge[source "SST3" target "SST4"]
                     edge[source "SST3" target "SST34"]
                     edge[source "SST3" target "SST12"]
@@ -253,109 +246,74 @@ model_leish=CausalModel(
                     
                     edge[source "SATL" target "TROP"]
                     
-                    edge[source "Temperature" target "excess_cases"]]"""
+                    edge[source "SOI" target "vectors"]
+                    edge[source "SST3" target "vectors"]
+                    edge[source "SST4" target "vectors"]
+                    edge[source "SST34" target "vectors"]
+                    edge[source "SST12" target "vectors"]
+                    edge[source "NATL" target "vectors"]
+                    edge[source "SATL" target "vectors"]
+                    edge[source "TROP" target "vectors"]
+                    edge[source "forest" target "vectors"]
+                    edge[source "Temp" target "vectors"]
+                    edge[source "vectors" target "excess"]
+                    
+                    edge[source "Temp" target "excess"]]"""
                     )
     
-#view model 
-#model_leish.view_model()
 
 #Step 2: Identifying effects
 identified_estimand_temp = model_leish.identify_effect(proceed_when_unidentifiable=False)
 print(identified_estimand_temp)
 
-estimate_temp = CausalForestDML(model_y=reg1(), model_t=reg2(), featurizer=PolynomialFeatures(degree=3), 
-                             discrete_treatment=False, cv=3, random_state=123)
+#Step 3: Fit the model
+Colombia_airtemp['Temp'] = Colombia_airtemp['Temp'].astype(np.uint8)
+Colombia_airtemp.Temp = stats.zscore(Colombia_airtemp.Temp, nan_policy='omit') 
+Colombia_airtemp['Temp'].std() 
+Colombia_airtemp['forest'] = Colombia_airtemp['forest'].astype(np.uint8)
+Y = Colombia_airtemp.excess.to_numpy() 
+T = Colombia_airtemp.Temp.to_numpy()
+W = Colombia_airtemp[['SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 
+                      'TROP', 'forest', 'Year', 'Month']].to_numpy().reshape(-1, 11)
+X = Colombia_airtemp[['forest']].to_numpy()
 
-estimate_temp = estimate_temp.dowhy
+estimate_airtemp = DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
+                       featurizer=PolynomialFeatures(degree=3),
+                       linear_first_stages=False, cv=3, random_state=999)
 
-# fit the model
-estimate_temp.fit(Y=Y, T=T, X=X, W=W, inference='blb')  
+estimate_airtemp.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
 
 # predict effect for each sample X
-estimate_temp.effect(X)
+estimate_airtemp.effect(X)
 
 # ate
-ate_Temperature = estimate_temp.ate(X) 
-print(ate_Temperature)
+ate_AirTemp = estimate_airtemp.ate(X) 
+print(ate_AirTemp)
 
 # confidence interval of ate
-ci_Temperature = estimate_temp.ate_interval(X) 
-print(ci_Temperature)
+ci_AirTemp = estimate_airtemp.ate_interval(X) 
+print(ci_AirTemp)
 
-
-#Step 4: Refute the effect
-#with random common cause
-random_Temperature = estimate_temp.refute_estimate(method_name="random_common_cause", random_state=123)
-print(random_Temperature)
-
-#with replace a random subset of the data
-subset_Temperature = estimate_temp.refute_estimate(method_name="data_subset_refuter", subset_fraction=0.9, num_simulations=3)
-print(subset_Temperature)
-
-#with placebo 
-placebo_Temperature = estimate_temp.refute_estimate(method_name="placebo_treatment_refuter", placebo_type="permute", num_simulations=3)
-print(placebo_Temperature)
+# Set values in the df_ATE
+df_ATE.at[0, 'ATE'] = ate_AirTemp  
+df_ATE.at[0, '95% CI'] = ci_AirTemp  
+print(df_ATE)
 
 
 
 
+#%%#
 
-#####soil Temperature
-
-Y = Colombia_soiltemp.excess_cases.to_numpy() #Y = data_card['incidencia100k_cardiovasculares'].values
-T = Colombia_soiltemp.SoilTMP0_10cm.to_numpy()
-W = Colombia_soiltemp[['SOI', 'Equatorial_SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 'TROP', 'forest_percent']].to_numpy().reshape(-1, 10)
-X = Colombia_soiltemp[['forest_percent']].to_numpy()
-
-
-#Model Selection for Causal Effect Model with the RScorer
-# A multitude of possible approaches for CATE estimation under conditional exogeneity
-X_train, X_val, T_train, T_val, Y_train, Y_val, W_train, W_val = train_test_split(X, T, Y, W, test_size=.4)
-
-
-models = [
-        ('ldml', LinearDML(model_y=reg1(), model_t=reg2(), discrete_treatment=False,
-                             linear_first_stages=False, cv=3, random_state=123)),
-        ('sldml', SparseLinearDML(model_y=reg1(), model_t=reg2(), discrete_treatment=False,
-                                    featurizer=PolynomialFeatures(degree=2, include_bias=False),
-                                    linear_first_stages=False, cv=3, random_state=123)),
-        ('dml', DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
-                             featurizer=PolynomialFeatures(degree=3),
-                             linear_first_stages=False, cv=3, random_state=123)),
-        ('forest', CausalForestDML(model_y=reg1(), model_t=reg2(), featurizer=PolynomialFeatures(degree=3), 
-                             discrete_treatment=False, cv=3, random_state=123)),
-        ('kernel', KernelDML(model_y=reg1(), model_t=reg2(),
-                             cv=3, random_state=123)),
-                
-         ]
-
-def fit_model(name, model):
-    return name, model.fit(Y_train, T_train, X=X_train, W=W_train)
-
-models = Parallel(n_jobs=-1, verbose=1, backend="threading")(delayed(fit_model)(name, mdl) for name, mdl in models)
-
-
-#Choose model with highest RScore
-scorer = RScorer(model_y=reg1(), model_t=reg2(),
-                 discrete_treatment=False, cv=3,
-                 mc_iters=3, mc_agg='median')
-
-scorer.fit(Y_val, T_val, X=X_val, W=W_val)
-
-
-rscore = [scorer.score(mdl) for _, mdl in models]
-print(rscore)#best model DML
-
+##Soil_temperature
 
 #Step 1: Modeling the causal mechanism
 model_leish=CausalModel(
         data = Colombia_soiltemp,
-        treatment=['SoilTMP0_10cm'],
-        outcome=['excess_cases'],
-        graph= """graph[directed 1 node[id "SoilTMP0_10cm" label "SoilTMP0_10cm"]
-                    node[id "excess_cases" label "excess_cases"]
+        treatment=['Soil_temp'],
+        outcome=['excess'],
+        graph= """graph[directed 1 node[id "Soil_temp" label "Soil_temp"]
+                    node[id "excess" label "excess"]
                     node[id "SOI" label "SOI"]
-                    node[id "Equatorial_SOI" label "Equatorial_SOI"]
                     node[id "SST3" label "SST3"]               
                     node[id "SST4" label "SST4"]
                     node[id "SST34" label "SST34"]
@@ -363,39 +321,60 @@ model_leish=CausalModel(
                     node[id "NATL" label "NATL"]
                     node[id "SATL" label "SATL"]
                     node[id "TROP" label "TROP"]                                      
-                    node[id "forest_percent" label "forest_percent"]
+                    node[id "forest" label "forest"]
+                    node[id "Year" label "Year"]
+                    node[id "Month" label "Month"]
+                    node[id "vectors" label "vectors"]
                                        
-                    edge[source "SOI" target "Temperature"]
-                    edge[source "SOI" target "excess_cases"]
+                    edge[source "SOI" target "Soil_temp"]
+                    edge[source "SOI" target "excess"]
+                                     
+                    edge[source "SST3" target "Soil_temp"]
+                    edge[source "SST3" target "excess"]
                     
-                    edge[source "Equatorial_SOI" target "Temperature"]
-                    edge[source "Equatorial_SOI" target "excess_cases"]
+                    edge[source "SST4" target "Soil_temp"]
+                    edge[source "SST4" target "excess"]
                     
-                    edge[source "SST3" target "Temperature"]
-                    edge[source "SST3" target "excess_cases"]
+                    edge[source "SST34" target "Soil_temp"]
+                    edge[source "SST34" target "excess"]
                     
-                    edge[source "SST4" target "Temperature"]
-                    edge[source "SST4" target "excess_cases"]
+                    edge[source "SST12" target "Soil_temp"]
+                    edge[source "SST12" target "excess"]
                     
-                    edge[source "SST34" target "Temperature"]
-                    edge[source "SST34" target "excess_cases"]
+                    edge[source "NATL" target "Soil_temp"]
+                    edge[source "NATL" target "excess"]
                     
-                    edge[source "SST12" target "Temperature"]
-                    edge[source "SST12" target "excess_cases"]
+                    edge[source "SATL" target "Soil_temp"]
+                    edge[source "SATL" target "excess"]
                     
-                    edge[source "NATL" target "Temperature"]
-                    edge[source "NATL" target "excess_cases"]
-                    
-                    edge[source "SATL" target "Temperature"]
-                    edge[source "SATL" target "excess_cases"]
-                    
-                    edge[source "TROP" target "Temperature"]
-                    edge[source "TROP" target "excess_cases"]
+                    edge[source "TROP" target "Soil_temp"]
+                    edge[source "TROP" target "excess"]
                                                       
-                    edge[source "forest_percent" target "Temperature"]
-                    edge[source "forest_percent" target "excess_cases"]
+                    edge[source "forest" target "Soil_temp"]
+                    edge[source "forest" target "excess"]
                     
-                    edge[source "SOI" target "Equatorial_SOI"]
+                    edge[source "Year" target "Soil_temp"]
+                    edge[source "Year" target "excess"]
+                    edge[source "Year" target "SST3"]
+                    edge[source "Year" target "SST4"]
+                    edge[source "Year" target "SST34"]
+                    edge[source "Year" target "SST12"]
+                    edge[source "Year" target "NATL"]
+                    edge[source "Year" target "SATL"]
+                    edge[source "Year" target "TROP"]
+                    edge[source "Year" target "SOI"]
+                    
+                    edge[source "Month" target "Soil_temp"]
+                    edge[source "Month" target "excess"]
+                    edge[source "Month" target "SST3"]
+                    edge[source "Month" target "SST4"]
+                    edge[source "Month" target "SST34"]
+                    edge[source "Month" target "SST12"]
+                    edge[source "Month" target "NATL"]
+                    edge[source "Month" target "SATL"]
+                    edge[source "Month" target "TROP"]
+                    edge[source "Month" target "SOI"]
+                                        
                     edge[source "SOI" target "SST3"]
                     edge[source "SOI" target "SST4"]
                     edge[source "SOI" target "SST34"]
@@ -403,15 +382,7 @@ model_leish=CausalModel(
                     edge[source "SOI" target "NATL"]
                     edge[source "SOI" target "SATL"]
                     edge[source "SOI" target "TROP"]
-                    
-                    edge[source "Equatorial_SOI" target "SST3"]
-                    edge[source "Equatorial_SOI" target "SST4"]
-                    edge[source "Equatorial_SOI" target "SST34"]
-                    edge[source "Equatorial_SOI" target "SST12"]
-                    edge[source "Equatorial_SOI" target "NATL"]
-                    edge[source "Equatorial_SOI" target "SATL"]
-                    edge[source "Equatorial_SOI" target "TROP"]
-                    
+                                       
                     edge[source "SST3" target "SST4"]
                     edge[source "SST3" target "SST34"]
                     edge[source "SST3" target "SST12"]
@@ -439,114 +410,73 @@ model_leish=CausalModel(
                     
                     edge[source "SATL" target "TROP"]
                     
-                    edge[source "SoilTMP0_10cm" target "excess_cases"]]"""
+                    edge[source "SOI" target "vectors"]
+                    edge[source "SST3" target "vectors"]
+                    edge[source "SST4" target "vectors"]
+                    edge[source "SST34" target "vectors"]
+                    edge[source "SST12" target "vectors"]
+                    edge[source "NATL" target "vectors"]
+                    edge[source "SATL" target "vectors"]
+                    edge[source "TROP" target "vectors"]
+                    edge[source "forest" target "vectors"]
+                    edge[source "Soil_temp" target "vectors"]
+                    edge[source "vectors" target "excess"]
+                    
+                    edge[source "Soil_temp" target "excess"]]"""
                     )
-        
-#view model 
-#model_leish.view_model()    
-
+    
 
 #Step 2: Identifying effects
-identified_estimand_soiltemp = model_leish.identify_effect(proceed_when_unidentifiable=False)
-print(identified_estimand_soiltemp)
+identified_estimand_Soil_temp = model_leish.identify_effect(proceed_when_unidentifiable=False)
+print(identified_estimand_Soil_temp)
 
+#Step 3: Fit the model
+Colombia_soiltemp['Soil_temp'] = Colombia_soiltemp['Soil_temp'].astype(np.uint8)
+Colombia_soiltemp.Soil_temp = stats.zscore(Colombia_soiltemp.Soil_temp, nan_policy='omit') 
+Colombia_soiltemp['Soil_temp'].std() 
+Colombia_soiltemp['forest'] = Colombia_soiltemp['forest'].astype(np.uint8)
+Y = Colombia_soiltemp.excess.to_numpy() 
+T = Colombia_soiltemp.Soil_temp.to_numpy()
+W = Colombia_soiltemp[['SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 
+                      'TROP', 'forest', 'Year', 'Month']].to_numpy().reshape(-1, 11)
+X = Colombia_soiltemp[['forest']].to_numpy()
 
-#Step 3: Estimation of the effect
-estimate_soiltemp = DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
-                        featurizer=PolynomialFeatures(degree=3),
-                        linear_first_stages=False, cv=3, random_state=123)
+estimate_Soil_temp = DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
+                       featurizer=PolynomialFeatures(degree=3),
+                       linear_first_stages=False, cv=3, random_state=999)
 
-    
-    
-
-estimate_soiltemp = estimate_soiltemp.dowhy
-
-# fit the model
-estimate_soiltemp.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
+estimate_Soil_temp.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
 
 # predict effect for each sample X
-estimate_soiltemp.effect(X)
+estimate_Soil_temp.effect(X)
 
 # ate
-ate_SoilTemperature = estimate_soiltemp.ate(X) 
-print(ate_SoilTemperature)
+ate_Soil_temp = estimate_Soil_temp.ate(X) 
+print(ate_Soil_temp)
 
 # confidence interval of ate
-ci_SoilTemperature = estimate_soiltemp.ate_interval(X) 
-print(ci_SoilTemperature)
+ci_Soil_temp = estimate_Soil_temp.ate_interval(X) 
+print(ci_Soil_temp)
 
-#Step 4: Refute the effect
-#with random common cause
-random_SoilTemperature = estimate_soiltemp.refute_estimate(method_name="random_common_cause", random_state=123)
-print(random_SoilTemperature)
-
-#with replace a random subset of the data
-subset_SoilTemperature = estimate_soiltemp.refute_estimate(method_name="data_subset_refuter", subset_fraction=0.9, num_simulations=3)
-print(subset_SoilTemperature)
-
-#with placebo 
-placebo_SoilTemperature = estimate_soiltemp.refute_estimate(method_name="placebo_treatment_refuter", placebo_type="permute", num_simulations=3)
-print(placebo_SoilTemperature)
+# Set values in the df_ATE
+df_ATE.at[1, 'ATE'] = ate_Soil_temp  
+df_ATE.at[1, '95% CI'] = ci_Soil_temp  
+print(df_ATE)
 
 
 
-#####Rainfall
+#%%#
 
-Y = Colombia_rainfall.excess_cases.to_numpy() #Y = data_card['incidencia100k_cardiovasculares'].values
-T = Colombia_rainfall.Rainfall.to_numpy()
-W = Colombia_rainfall[['SOI', 'Equatorial_SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 'TROP', 'forest_percent']].to_numpy().reshape(-1, 10)
-X = Colombia_rainfall[['forest_percent']].to_numpy()
-
-
-#Model Selection for Causal Effect Model with the RScorer
-# A multitude of possible approaches for CATE estimation under conditional exogeneity
-X_train, X_val, T_train, T_val, Y_train, Y_val, W_train, W_val = train_test_split(X, T, Y, W, test_size=.4)
-
-
-models = [
-        ('ldml', LinearDML(model_y=reg1(), model_t=reg2(), discrete_treatment=False,
-                             linear_first_stages=False, cv=3, random_state=123)),
-        ('sldml', SparseLinearDML(model_y=reg1(), model_t=reg2(), discrete_treatment=False,
-                                    featurizer=PolynomialFeatures(degree=2, include_bias=False),
-                                    linear_first_stages=False, cv=3, random_state=123)),
-        ('dml', DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
-                             featurizer=PolynomialFeatures(degree=3),
-                             linear_first_stages=False, cv=3, random_state=123)),
-        ('forest', CausalForestDML(model_y=reg1(), model_t=reg2(), featurizer=PolynomialFeatures(degree=3), 
-                             discrete_treatment=False, cv=3, random_state=123)),
-        ('kernel', KernelDML(model_y=reg1(), model_t=reg2(),
-                             cv=3, random_state=123)),
-        
-          
-         ]
-
-
-def fit_model(name, model):
-    return name, model.fit(Y_train, T_train, X=X_train, W=W_train)
-
-models = Parallel(n_jobs=-1, verbose=1, backend="threading")(delayed(fit_model)(name, mdl) for name, mdl in models)
-
-#Choose model with highest RScore
-scorer = RScorer(model_y=reg1(), model_t=reg2(),
-                 discrete_treatment=False, cv=3,
-                 mc_iters=3, mc_agg='median')
-
-scorer.fit(Y_val, T_val, X=X_val, W=W_val)
-
-
-rscore = [scorer.score(mdl) for _, mdl in models]
-print(rscore)#best model SparseLinearDML
-
+##Rainfall
 
 #Step 1: Modeling the causal mechanism
 model_leish=CausalModel(
-        data = Colombia_rainfall,
-        treatment=['Rainfall'],
-        outcome=['excess_cases'],
-        graph= """graph[directed 1 node[id "Rainfall" label "Rainfall"]
-                    node[id "excess_cases" label "excess_cases"]
+        data = Colombia_rain,
+        treatment=['Rain'],
+        outcome=['excess'],
+        graph= """graph[directed 1 node[id "Rain" label "Rain"]
+                    node[id "excess" label "excess"]
                     node[id "SOI" label "SOI"]
-                    node[id "Equatorial_SOI" label "Equatorial_SOI"]
                     node[id "SST3" label "SST3"]               
                     node[id "SST4" label "SST4"]
                     node[id "SST34" label "SST34"]
@@ -554,39 +484,60 @@ model_leish=CausalModel(
                     node[id "NATL" label "NATL"]
                     node[id "SATL" label "SATL"]
                     node[id "TROP" label "TROP"]                                      
-                    node[id "forest_percent" label "forest_percent"]
+                    node[id "forest" label "forest"]
+                    node[id "Year" label "Year"]
+                    node[id "Month" label "Month"]
+                    node[id "vectors" label "vectors"]
                                        
-                    edge[source "SOI" target "Temperature"]
-                    edge[source "SOI" target "excess_cases"]
+                    edge[source "SOI" target "Rain"]
+                    edge[source "SOI" target "excess"]
+                                     
+                    edge[source "SST3" target "Rain"]
+                    edge[source "SST3" target "excess"]
                     
-                    edge[source "Equatorial_SOI" target "Temperature"]
-                    edge[source "Equatorial_SOI" target "excess_cases"]
+                    edge[source "SST4" target "Rain"]
+                    edge[source "SST4" target "excess"]
                     
-                    edge[source "SST3" target "Temperature"]
-                    edge[source "SST3" target "excess_cases"]
+                    edge[source "SST34" target "Rain"]
+                    edge[source "SST34" target "excess"]
                     
-                    edge[source "SST4" target "Temperature"]
-                    edge[source "SST4" target "excess_cases"]
+                    edge[source "SST12" target "Rain"]
+                    edge[source "SST12" target "excess"]
                     
-                    edge[source "SST34" target "Temperature"]
-                    edge[source "SST34" target "excess_cases"]
+                    edge[source "NATL" target "Rain"]
+                    edge[source "NATL" target "excess"]
                     
-                    edge[source "SST12" target "Temperature"]
-                    edge[source "SST12" target "excess_cases"]
+                    edge[source "SATL" target "Rain"]
+                    edge[source "SATL" target "excess"]
                     
-                    edge[source "NATL" target "Temperature"]
-                    edge[source "NATL" target "excess_cases"]
-                    
-                    edge[source "SATL" target "Temperature"]
-                    edge[source "SATL" target "excess_cases"]
-                    
-                    edge[source "TROP" target "Temperature"]
-                    edge[source "TROP" target "excess_cases"]
+                    edge[source "TROP" target "Rain"]
+                    edge[source "TROP" target "excess"]
                                                       
-                    edge[source "forest_percent" target "Temperature"]
-                    edge[source "forest_percent" target "excess_cases"]
+                    edge[source "forest" target "Rain"]
+                    edge[source "forest" target "excess"]
                     
-                    edge[source "SOI" target "Equatorial_SOI"]
+                    edge[source "Year" target "Rain"]
+                    edge[source "Year" target "excess"]
+                    edge[source "Year" target "SST3"]
+                    edge[source "Year" target "SST4"]
+                    edge[source "Year" target "SST34"]
+                    edge[source "Year" target "SST12"]
+                    edge[source "Year" target "NATL"]
+                    edge[source "Year" target "SATL"]
+                    edge[source "Year" target "TROP"]
+                    edge[source "Year" target "SOI"]
+                    
+                    edge[source "Month" target "Rain"]
+                    edge[source "Month" target "excess"]
+                    edge[source "Month" target "SST3"]
+                    edge[source "Month" target "SST4"]
+                    edge[source "Month" target "SST34"]
+                    edge[source "Month" target "SST12"]
+                    edge[source "Month" target "NATL"]
+                    edge[source "Month" target "SATL"]
+                    edge[source "Month" target "TROP"]
+                    edge[source "Month" target "SOI"]
+                                        
                     edge[source "SOI" target "SST3"]
                     edge[source "SOI" target "SST4"]
                     edge[source "SOI" target "SST34"]
@@ -594,15 +545,7 @@ model_leish=CausalModel(
                     edge[source "SOI" target "NATL"]
                     edge[source "SOI" target "SATL"]
                     edge[source "SOI" target "TROP"]
-                    
-                    edge[source "Equatorial_SOI" target "SST3"]
-                    edge[source "Equatorial_SOI" target "SST4"]
-                    edge[source "Equatorial_SOI" target "SST34"]
-                    edge[source "Equatorial_SOI" target "SST12"]
-                    edge[source "Equatorial_SOI" target "NATL"]
-                    edge[source "Equatorial_SOI" target "SATL"]
-                    edge[source "Equatorial_SOI" target "TROP"]
-                    
+                                       
                     edge[source "SST3" target "SST4"]
                     edge[source "SST3" target "SST34"]
                     edge[source "SST3" target "SST12"]
@@ -630,110 +573,73 @@ model_leish=CausalModel(
                     
                     edge[source "SATL" target "TROP"]
                     
-                    edge[source "Rainfall" target "excess_cases"]]"""
+                    edge[source "SOI" target "vectors"]
+                    edge[source "SST3" target "vectors"]
+                    edge[source "SST4" target "vectors"]
+                    edge[source "SST34" target "vectors"]
+                    edge[source "SST12" target "vectors"]
+                    edge[source "NATL" target "vectors"]
+                    edge[source "SATL" target "vectors"]
+                    edge[source "TROP" target "vectors"]
+                    edge[source "forest" target "vectors"]
+                    edge[source "Rain" target "vectors"]
+                    edge[source "vectors" target "excess"]
+                    
+                    edge[source "Rain" target "excess"]]"""
                     )
-
-#view model 
-#model_leish.view_model()        
+    
 
 #Step 2: Identifying effects
-identified_estimand_rain = model_leish.identify_effect(proceed_when_unidentifiable=False)
-print(identified_estimand_rain)
+identified_estimand_Rain = model_leish.identify_effect(proceed_when_unidentifiable=False)
+print(identified_estimand_Rain)
 
-#Step 3: Estimation of the effect 
-estimate_rain = SparseLinearDML(model_y=reg1(), model_t=reg2(), discrete_treatment=False,
-                                    featurizer=PolynomialFeatures(degree=2, include_bias=False),
-                                    linear_first_stages=False, cv=3, random_state=123)
+#Step 3: Fit the model
+Colombia_rain['Rain'] = Colombia_rain['Rain'].astype(np.uint8)
+Colombia_rain.Rain = stats.zscore(Colombia_rain.Rain, nan_policy='omit') 
+Colombia_rain['Rain'].std() 
+Colombia_rain['forest'] = Colombia_rain['forest'].astype(np.uint8)
+Y = Colombia_rain.excess.to_numpy() 
+T = Colombia_rain.Rain.to_numpy()
+W = Colombia_rain[['SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 
+                      'TROP', 'forest', 'Year', 'Month']].to_numpy().reshape(-1, 11)
+X = Colombia_rain[['forest']].to_numpy()
 
-estimate_rain = estimate_rain.dowhy
+estimate_Rain = DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
+                       featurizer=PolynomialFeatures(degree=3),
+                       linear_first_stages=False, cv=3, random_state=999)
 
-# fit the model
-estimate_rain.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
+estimate_Rain.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
 
 # predict effect for each sample X
-estimate_rain.effect(X)
+estimate_Rain.effect(X)
 
 # ate
-ate_Rain = estimate_rain.ate(X) 
+ate_Rain = estimate_Rain.ate(X) 
 print(ate_Rain)
 
 # confidence interval of ate
-ci_Rain = estimate_rain.ate_interval(X) 
+ci_Rain = estimate_Rain.ate_interval(X) 
 print(ci_Rain)
 
-#Step 4: Refute the effect
-#with random common cause
-random_Rain = estimate_rain.refute_estimate(method_name="random_common_cause", random_state=123)
-print(random_Rain)
-
-#with replace a random subset of the data
-subset_Rain = estimate_rain.refute_estimate(method_name="data_subset_refuter", subset_fraction=0.9, num_simulations=3)
-print(subset_Rain)
-
-#with placebo 
-placebo_Rain = estimate_rain.refute_estimate(method_name="placebo_treatment_refuter", placebo_type="permute", num_simulations=3)
-print(placebo_Rain)
+# Set values in the df_ATE
+df_ATE.at[2, 'ATE'] = ate_Rain  
+df_ATE.at[2, '95% CI'] = ci_Rain  
+print(df_ATE)
 
 
 
+#%%#
 
-#####Runoff
-
-Y = Colombia_runoff.excess_cases.to_numpy() #Y = data_card['incidencia100k_cardiovasculares'].values
-T = Colombia_runoff.Qs.to_numpy()
-W = Colombia_runoff[['SOI', 'Equatorial_SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 'TROP', 'forest_percent']].to_numpy().reshape(-1, 10)
-X = Colombia_runoff[['forest_percent']].to_numpy()
-
-
-
-#Model Selection for Causal Effect Model with the RScorer
-# A multitude of possible approaches for CATE estimation under conditional exogeneity
-X_train, X_val, T_train, T_val, Y_train, Y_val, W_train, W_val = train_test_split(X, T, Y, W, test_size=.4)
-
-models = [
-        ('ldml', LinearDML(model_y=reg1(), model_t=reg2(), discrete_treatment=False,
-                             linear_first_stages=False, cv=3, random_state=123)),
-        ('sldml', SparseLinearDML(model_y=reg1(), model_t=reg2(), discrete_treatment=False,
-                                    featurizer=PolynomialFeatures(degree=2, include_bias=False),
-                                    linear_first_stages=False, cv=3, random_state=123)),
-        ('dml', DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
-                             featurizer=PolynomialFeatures(degree=3),
-                             linear_first_stages=False, cv=3, random_state=123)),
-        ('forest', CausalForestDML(model_y=reg1(), model_t=reg2(), featurizer=PolynomialFeatures(degree=3), 
-                             discrete_treatment=False, cv=3, random_state=123)),
-        ('kernel', KernelDML(model_y=reg1(), model_t=reg2(),
-                             cv=3, random_state=123)),
-                 
-         ]
-
-def fit_model(name, model):
-    return name, model.fit(Y_train, T_train, X=X_train, W=W_train)
-
-models = Parallel(n_jobs=-1, verbose=1, backend="threading")(delayed(fit_model)(name, mdl) for name, mdl in models)
-
-
-#Choose model with highest RScore
-scorer = RScorer(model_y=reg1(), model_t=reg2(),
-                 discrete_treatment=False, cv=3,
-                 mc_iters=3, mc_agg='median')
-
-scorer.fit(Y_val, T_val, X=X_val, W=W_val)
-
-
-rscore = [scorer.score(mdl) for _, mdl in models]
-print(rscore) #best model DML
-
-
+##Runoff
 
 #Step 1: Modeling the causal mechanism
 model_leish=CausalModel(
         data = Colombia_runoff,
         treatment=['Qs'],
-        outcome=['excess_cases'],
+        outcome=['excess'],
         graph= """graph[directed 1 node[id "Qs" label "Qs"]
-                     node[id "excess_cases" label "excess_cases"]
+                    node[id "excess" label "excess"]
                     node[id "SOI" label "SOI"]
-                    node[id "Equatorial_SOI" label "Equatorial_SOI"]
                     node[id "SST3" label "SST3"]               
                     node[id "SST4" label "SST4"]
                     node[id "SST34" label "SST34"]
@@ -741,39 +647,60 @@ model_leish=CausalModel(
                     node[id "NATL" label "NATL"]
                     node[id "SATL" label "SATL"]
                     node[id "TROP" label "TROP"]                                      
-                    node[id "forest_percent" label "forest_percent"]
+                    node[id "forest" label "forest"]
+                    node[id "Year" label "Year"]
+                    node[id "Month" label "Month"]
+                    node[id "vectors" label "vectors"]
                                        
-                    edge[source "SOI" target "Temperature"]
-                    edge[source "SOI" target "excess_cases"]
+                    edge[source "SOI" target "Qs"]
+                    edge[source "SOI" target "excess"]
+                                     
+                    edge[source "SST3" target "Qs"]
+                    edge[source "SST3" target "excess"]
                     
-                    edge[source "Equatorial_SOI" target "Temperature"]
-                    edge[source "Equatorial_SOI" target "excess_cases"]
+                    edge[source "SST4" target "Qs"]
+                    edge[source "SST4" target "excess"]
                     
-                    edge[source "SST3" target "Temperature"]
-                    edge[source "SST3" target "excess_cases"]
+                    edge[source "SST34" target "Qs"]
+                    edge[source "SST34" target "excess"]
                     
-                    edge[source "SST4" target "Temperature"]
-                    edge[source "SST4" target "excess_cases"]
+                    edge[source "SST12" target "Qs"]
+                    edge[source "SST12" target "excess"]
                     
-                    edge[source "SST34" target "Temperature"]
-                    edge[source "SST34" target "excess_cases"]
+                    edge[source "NATL" target "Qs"]
+                    edge[source "NATL" target "excess"]
                     
-                    edge[source "SST12" target "Temperature"]
-                    edge[source "SST12" target "excess_cases"]
+                    edge[source "SATL" target "Qs"]
+                    edge[source "SATL" target "excess"]
                     
-                    edge[source "NATL" target "Temperature"]
-                    edge[source "NATL" target "excess_cases"]
-                    
-                    edge[source "SATL" target "Temperature"]
-                    edge[source "SATL" target "excess_cases"]
-                    
-                    edge[source "TROP" target "Temperature"]
-                    edge[source "TROP" target "excess_cases"]
+                    edge[source "TROP" target "Qs"]
+                    edge[source "TROP" target "excess"]
                                                       
-                    edge[source "forest_percent" target "Temperature"]
-                    edge[source "forest_percent" target "excess_cases"]
+                    edge[source "forest" target "Qs"]
+                    edge[source "forest" target "excess"]
                     
-                    edge[source "SOI" target "Equatorial_SOI"]
+                    edge[source "Year" target "Qs"]
+                    edge[source "Year" target "excess"]
+                    edge[source "Year" target "SST3"]
+                    edge[source "Year" target "SST4"]
+                    edge[source "Year" target "SST34"]
+                    edge[source "Year" target "SST12"]
+                    edge[source "Year" target "NATL"]
+                    edge[source "Year" target "SATL"]
+                    edge[source "Year" target "TROP"]
+                    edge[source "Year" target "SOI"]
+                    
+                    edge[source "Month" target "Qs"]
+                    edge[source "Month" target "excess"]
+                    edge[source "Month" target "SST3"]
+                    edge[source "Month" target "SST4"]
+                    edge[source "Month" target "SST34"]
+                    edge[source "Month" target "SST12"]
+                    edge[source "Month" target "NATL"]
+                    edge[source "Month" target "SATL"]
+                    edge[source "Month" target "TROP"]
+                    edge[source "Month" target "SOI"]
+                                        
                     edge[source "SOI" target "SST3"]
                     edge[source "SOI" target "SST4"]
                     edge[source "SOI" target "SST34"]
@@ -781,15 +708,7 @@ model_leish=CausalModel(
                     edge[source "SOI" target "NATL"]
                     edge[source "SOI" target "SATL"]
                     edge[source "SOI" target "TROP"]
-                    
-                    edge[source "Equatorial_SOI" target "SST3"]
-                    edge[source "Equatorial_SOI" target "SST4"]
-                    edge[source "Equatorial_SOI" target "SST34"]
-                    edge[source "Equatorial_SOI" target "SST12"]
-                    edge[source "Equatorial_SOI" target "NATL"]
-                    edge[source "Equatorial_SOI" target "SATL"]
-                    edge[source "Equatorial_SOI" target "TROP"]
-                    
+                                       
                     edge[source "SST3" target "SST4"]
                     edge[source "SST3" target "SST34"]
                     edge[source "SST3" target "SST12"]
@@ -817,111 +736,72 @@ model_leish=CausalModel(
                     
                     edge[source "SATL" target "TROP"]
                     
-                    edge[source "Qs" target "excess_cases"]]"""
+                    edge[source "SOI" target "vectors"]
+                    edge[source "SST3" target "vectors"]
+                    edge[source "SST4" target "vectors"]
+                    edge[source "SST34" target "vectors"]
+                    edge[source "SST12" target "vectors"]
+                    edge[source "NATL" target "vectors"]
+                    edge[source "SATL" target "vectors"]
+                    edge[source "TROP" target "vectors"]
+                    edge[source "forest" target "vectors"]
+                    edge[source "Qs" target "vectors"]
+                    edge[source "vectors" target "excess"]
+                    
+                    edge[source "Qs" target "excess"]]"""
                     )
-              
-        
-#view model 
-#model_leish.view_model()
+    
 
 #Step 2: Identifying effects
-identified_estimand_runoff = model_leish.identify_effect(proceed_when_unidentifiable=False)
-print(identified_estimand_runoff)
+identified_estimand_Qs = model_leish.identify_effect(proceed_when_unidentifiable=False)
+print(identified_estimand_Qs)
 
-#Step 3: Estimation of the effect 
-estimate_runoff = DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
-                        featurizer=PolynomialFeatures(degree=3),
-                        linear_first_stages=False, cv=3, random_state=123)
+#Step 3: Fit the model
+Colombia_runoff['Qs'] = Colombia_runoff['Qs'].astype(np.uint8)
+Colombia_runoff.Qs = stats.zscore(Colombia_runoff.Qs, nan_policy='omit') 
+Colombia_runoff['Qs'].std() 
+Colombia_runoff['forest'] = Colombia_runoff['forest'].astype(np.uint8)
+Y = Colombia_runoff.excess.to_numpy() 
+T = Colombia_runoff.Qs.to_numpy()
+W = Colombia_runoff[['SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 
+                      'TROP', 'forest', 'Year', 'Month']].to_numpy().reshape(-1, 11)
+X = Colombia_runoff[['forest']].to_numpy()
 
-estimate_runoff = estimate_runoff.dowhy
+estimate_Qs = DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
+                       featurizer=PolynomialFeatures(degree=3),
+                       linear_first_stages=False, cv=3, random_state=999)
 
-# fit the model
-estimate_runoff.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
+estimate_Qs.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
 
 # predict effect for each sample X
-estimate_runoff.effect(X)
+estimate_Qs.effect(X)
 
 # ate
-ate_Runoff = estimate_runoff.ate(X) 
-print(ate_Runoff)
+ate_Qs = estimate_Qs.ate(X) 
+print(ate_Qs)
 
 # confidence interval of ate
-ci_Runoff = estimate_runoff.ate_interval(X) 
-print(ci_Runoff)
+ci_Qs = estimate_Qs.ate_interval(X) 
+print(ci_Qs)
 
-#Step 4: Refute the effect
-#with random common cause
-random_Runoff = estimate_runoff.refute_estimate(method_name="random_common_cause", random_state=123)
-print(random_Runoff)
-
-#with replace a random subset of the data
-subset_Runoff = estimate_runoff.refute_estimate(method_name="data_subset_refuter", subset_fraction=0.9, num_simulations=3)
-print(subset_Runoff)
-
-#with placebo 
-placebo_Runoff = estimate_runoff.refute_estimate(method_name="placebo_treatment_refuter", placebo_type="permute", num_simulations=3)
-print(placebo_Runoff)
+# Set values in the df_ATE
+df_ATE.at[3, 'ATE'] = ate_Qs  
+df_ATE.at[3, '95% CI'] = ci_Qs  
+print(df_ATE)
 
 
 
-
-#####soil moisture
-
-Y = Colombia_soilmoisture.excess_cases.to_numpy() #Y = data_card['incidencia100k_cardiovasculares'].values
-T = Colombia_soilmoisture.SoilMoi0_10cm.to_numpy()
-W = Colombia_soilmoisture[['SOI', 'Equatorial_SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 'TROP', 'forest_percent']].to_numpy().reshape(-1, 10)
-X = Colombia_soilmoisture[['forest_percent']].to_numpy()
-
-#Model Selection for Causal Effect Model with the RScorer
-# A multitude of possible approaches for CATE estimation under conditional exogeneity
-X_train, X_val, T_train, T_val, Y_train, Y_val, W_train, W_val = train_test_split(X, T, Y, W, test_size=.4)
-
-models = [
-        ('ldml', LinearDML(model_y=reg1(), model_t=reg2(), discrete_treatment=False,
-                             linear_first_stages=False, cv=3, random_state=123)),
-        ('sldml', SparseLinearDML(model_y=reg1(), model_t=reg2(), discrete_treatment=False,
-                                    featurizer=PolynomialFeatures(degree=2, include_bias=False),
-                                    linear_first_stages=False, cv=3, random_state=123)),
-        ('dml', DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
-                             featurizer=PolynomialFeatures(degree=3),
-                             linear_first_stages=False, cv=3, random_state=123)),
-        ('forest', CausalForestDML(model_y=reg1(), model_t=reg2(), featurizer=PolynomialFeatures(degree=3), 
-                             discrete_treatment=False, cv=3, random_state=123)),
-        ('kernel', KernelDML(model_y=reg1(), model_t=reg2(),
-                             cv=3, random_state=123)),
-                 
-         ]
-
-
-
-def fit_model(name, model):
-    return name, model.fit(Y_train, T_train, X=X_train, W=W_train)
-
-models = Parallel(n_jobs=-1, verbose=1, backend="threading")(delayed(fit_model)(name, mdl) for name, mdl in models)
-
-
-#Choose model with highest RScore
-scorer = RScorer(model_y=reg1(), model_t=reg2(),
-                 discrete_treatment=False, cv=3,
-                 mc_iters=3, mc_agg='median')
-
-scorer.fit(Y_val, T_val, X=X_val, W=W_val)
-
-
-rscore = [scorer.score(mdl) for _, mdl in models]
-print(rscore) #best model SparseLinearDML
-
-
+#%%#
+##Soil Moisture
 
 #Step 1: Modeling the causal mechanism
 model_leish=CausalModel(
-        data = Colombia_soilmoisture,
-        treatment=['SoilMoi0_10cm'],
-        outcome=['excess_cases'],
-        graph= """graph[directed 1 node[id "SoilMoi0_10cm" label "SoilMoi0_10cm"]
-                     node[id "excess_cases" label "excess_cases"]
+        data = Colombia_soilmoist,
+        treatment=['Soil_mois'],
+        outcome=['excess'],
+        graph= """graph[directed 1 node[id "Soil_mois" label "Soil_mois"]
+                    node[id "excess" label "excess"]
                     node[id "SOI" label "SOI"]
-                    node[id "Equatorial_SOI" label "Equatorial_SOI"]
                     node[id "SST3" label "SST3"]               
                     node[id "SST4" label "SST4"]
                     node[id "SST34" label "SST34"]
@@ -929,39 +809,60 @@ model_leish=CausalModel(
                     node[id "NATL" label "NATL"]
                     node[id "SATL" label "SATL"]
                     node[id "TROP" label "TROP"]                                      
-                    node[id "forest_percent" label "forest_percent"]
+                    node[id "forest" label "forest"]
+                    node[id "Year" label "Year"]
+                    node[id "Month" label "Month"]
+                    node[id "vectors" label "vectors"]
                                        
-                    edge[source "SOI" target "Temperature"]
-                    edge[source "SOI" target "excess_cases"]
+                    edge[source "SOI" target "Soil_mois"]
+                    edge[source "SOI" target "excess"]
+                                     
+                    edge[source "SST3" target "Soil_mois"]
+                    edge[source "SST3" target "excess"]
                     
-                    edge[source "Equatorial_SOI" target "Temperature"]
-                    edge[source "Equatorial_SOI" target "excess_cases"]
+                    edge[source "SST4" target "Soil_mois"]
+                    edge[source "SST4" target "excess"]
                     
-                    edge[source "SST3" target "Temperature"]
-                    edge[source "SST3" target "excess_cases"]
+                    edge[source "SST34" target "Soil_mois"]
+                    edge[source "SST34" target "excess"]
                     
-                    edge[source "SST4" target "Temperature"]
-                    edge[source "SST4" target "excess_cases"]
+                    edge[source "SST12" target "Soil_mois"]
+                    edge[source "SST12" target "excess"]
                     
-                    edge[source "SST34" target "Temperature"]
-                    edge[source "SST34" target "excess_cases"]
+                    edge[source "NATL" target "Soil_mois"]
+                    edge[source "NATL" target "excess"]
                     
-                    edge[source "SST12" target "Temperature"]
-                    edge[source "SST12" target "excess_cases"]
+                    edge[source "SATL" target "Soil_mois"]
+                    edge[source "SATL" target "excess"]
                     
-                    edge[source "NATL" target "Temperature"]
-                    edge[source "NATL" target "excess_cases"]
-                    
-                    edge[source "SATL" target "Temperature"]
-                    edge[source "SATL" target "excess_cases"]
-                    
-                    edge[source "TROP" target "Temperature"]
-                    edge[source "TROP" target "excess_cases"]
+                    edge[source "TROP" target "Soil_mois"]
+                    edge[source "TROP" target "excess"]
                                                       
-                    edge[source "forest_percent" target "Temperature"]
-                    edge[source "forest_percent" target "excess_cases"]
+                    edge[source "forest" target "Soil_mois"]
+                    edge[source "forest" target "excess"]
                     
-                    edge[source "SOI" target "Equatorial_SOI"]
+                    edge[source "Year" target "Soil_mois"]
+                    edge[source "Year" target "excess"]
+                    edge[source "Year" target "SST3"]
+                    edge[source "Year" target "SST4"]
+                    edge[source "Year" target "SST34"]
+                    edge[source "Year" target "SST12"]
+                    edge[source "Year" target "NATL"]
+                    edge[source "Year" target "SATL"]
+                    edge[source "Year" target "TROP"]
+                    edge[source "Year" target "SOI"]
+                    
+                    edge[source "Month" target "Soil_mois"]
+                    edge[source "Month" target "excess"]
+                    edge[source "Month" target "SST3"]
+                    edge[source "Month" target "SST4"]
+                    edge[source "Month" target "SST34"]
+                    edge[source "Month" target "SST12"]
+                    edge[source "Month" target "NATL"]
+                    edge[source "Month" target "SATL"]
+                    edge[source "Month" target "TROP"]
+                    edge[source "Month" target "SOI"]
+                                        
                     edge[source "SOI" target "SST3"]
                     edge[source "SOI" target "SST4"]
                     edge[source "SOI" target "SST34"]
@@ -969,15 +870,7 @@ model_leish=CausalModel(
                     edge[source "SOI" target "NATL"]
                     edge[source "SOI" target "SATL"]
                     edge[source "SOI" target "TROP"]
-                    
-                    edge[source "Equatorial_SOI" target "SST3"]
-                    edge[source "Equatorial_SOI" target "SST4"]
-                    edge[source "Equatorial_SOI" target "SST34"]
-                    edge[source "Equatorial_SOI" target "SST12"]
-                    edge[source "Equatorial_SOI" target "NATL"]
-                    edge[source "Equatorial_SOI" target "SATL"]
-                    edge[source "Equatorial_SOI" target "TROP"]
-                    
+                                       
                     edge[source "SST3" target "SST4"]
                     edge[source "SST3" target "SST34"]
                     edge[source "SST3" target "SST12"]
@@ -1005,113 +898,72 @@ model_leish=CausalModel(
                     
                     edge[source "SATL" target "TROP"]
                     
-                    edge[source "SoilMoi0_10cm" target "excess_cases"]]"""
+                    edge[source "SOI" target "vectors"]
+                    edge[source "SST3" target "vectors"]
+                    edge[source "SST4" target "vectors"]
+                    edge[source "SST34" target "vectors"]
+                    edge[source "SST12" target "vectors"]
+                    edge[source "NATL" target "vectors"]
+                    edge[source "SATL" target "vectors"]
+                    edge[source "TROP" target "vectors"]
+                    edge[source "forest" target "vectors"]
+                    edge[source "Soil_mois" target "vectors"]
+                    edge[source "vectors" target "excess"]
+                    
+                    edge[source "Soil_mois" target "excess"]]"""
                     )
-        
-        
-        
-#view model 
-#model_leish.view_model()
+    
 
 #Step 2: Identifying effects
-identified_estimand_soilmoist = model_leish.identify_effect(proceed_when_unidentifiable=False)
-print(identified_estimand_soilmoist)
+identified_estimand_Soil_mois = model_leish.identify_effect(proceed_when_unidentifiable=False)
+print(identified_estimand_Soil_mois)
 
-#Step 3: Estimation of the effect 
-estimate_soilmoist = SparseLinearDML(model_y=reg1(), model_t=reg2(), discrete_treatment=False,
-                                    featurizer=PolynomialFeatures(degree=2, include_bias=False),
-                                    linear_first_stages=False, cv=3, random_state=123)
+#Step 3: Fit the model
+Colombia_soilmoist['Soil_mois'] = Colombia_soilmoist['Soil_mois'].astype(np.uint8)
+Colombia_soilmoist.Soil_mois = stats.zscore(Colombia_soilmoist.Soil_mois, nan_policy='omit') 
+Colombia_soilmoist['Soil_mois'].std() 
+Colombia_soilmoist['forest'] = Colombia_soilmoist['forest'].astype(np.uint8)
+Y = Colombia_soilmoist.excess.to_numpy() 
+T = Colombia_soilmoist.Soil_mois.to_numpy()
+W = Colombia_soilmoist[['SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 
+                      'TROP', 'forest', 'Year', 'Month']].to_numpy().reshape(-1, 11)
+X = Colombia_soilmoist[['forest']].to_numpy()
 
-estimate_soilmoist = estimate_soilmoist.dowhy
+estimate_Soil_mois = DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
+                       featurizer=PolynomialFeatures(degree=3),
+                       linear_first_stages=False, cv=3, random_state=999)
 
-# fit the model
-estimate_soilmoist.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
+estimate_Soil_mois.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
 
 # predict effect for each sample X
-estimate_soilmoist.effect(X)
+estimate_Soil_mois.effect(X)
 
 # ate
-ate_Soilmoist = estimate_soilmoist.ate(X) 
-print(ate_Soilmoist)
+ate_Soil_mois = estimate_Soil_mois.ate(X) 
+print(ate_Soil_mois)
 
 # confidence interval of ate
-ci_Soilmoist = estimate_soilmoist.ate_interval(X) 
-print(ci_Soilmoist)
+ci_Soil_mois = estimate_Soil_mois.ate_interval(X) 
+print(ci_Soil_mois)
 
-#Step 4: Refute the effect
-#with random common cause
-random_Soilmoist = estimate_soilmoist.refute_estimate(method_name="random_common_cause", random_state=123)
-print(random_Soilmoist)
-
-#with replace a random subset of the data
-subset_Soilmoist = estimate_soilmoist.refute_estimate(method_name="data_subset_refuter", subset_fraction=0.9, num_simulations=3)
-print(subset_Soilmoist)
-
-#with placebo 
-placebo_Soilmoist = estimate_soilmoist.refute_estimate(method_name="placebo_treatment_refuter", placebo_type="permute", num_simulations=3)
-print(placebo_Soilmoist)
+# Set values in the df_ATE
+df_ATE.at[4, 'ATE'] = ate_Soil_mois  
+df_ATE.at[4, '95% CI'] = ci_Soil_mois  
+print(df_ATE)
 
 
 
-
-#####EVI
-
-Y = Colombia_EVI.excess_cases.to_numpy() #Y = data_card['incidencia100k_cardiovasculares'].values
-T = Colombia_EVI.EVI.to_numpy()
-W = Colombia_EVI[['SOI', 'Equatorial_SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 'TROP', 'forest_percent']].to_numpy().reshape(-1, 10)
-X = Colombia_EVI[['forest_percent']].to_numpy()
-
-
-#Model Selection for Causal Effect Model with the RScorer
-# A multitude of possible approaches for CATE estimation under conditional exogeneity
-X_train, X_val, T_train, T_val, Y_train, Y_val, W_train, W_val = train_test_split(X, T, Y, W, test_size=.4)
-
-
-models = [
-        ('ldml', LinearDML(model_y=reg1(), model_t=reg2(), discrete_treatment=False,
-                             linear_first_stages=False, cv=3, random_state=123)),
-        ('sldml', SparseLinearDML(model_y=reg1(), model_t=reg2(), discrete_treatment=False,
-                                    featurizer=PolynomialFeatures(degree=2, include_bias=False),
-                                    linear_first_stages=False, cv=3, random_state=123)),
-        ('dml', DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
-                             featurizer=PolynomialFeatures(degree=3),
-                             linear_first_stages=False, cv=3, random_state=123)),
-        ('forest', CausalForestDML(model_y=reg1(), model_t=reg2(), featurizer=PolynomialFeatures(degree=3), 
-                             discrete_treatment=False, cv=3, random_state=123)),
-        ('kernel', KernelDML(model_y=reg1(), model_t=reg2(),
-                             cv=3, random_state=123)),
-                  
-         ]
-
-
-
-def fit_model(name, model):
-    return name, model.fit(Y_train, T_train, X=X_train, W=W_train)
-
-models = Parallel(n_jobs=-1, verbose=1, backend="threading")(delayed(fit_model)(name, mdl) for name, mdl in models)
-
-
-#Choose model with highest RScore
-scorer = RScorer(model_y=reg1(), model_t=reg2(),
-                 discrete_treatment=False, cv=3,
-                 mc_iters=3, mc_agg='median')
-
-scorer.fit(Y_val, T_val, X=X_val, W=W_val)
-
-
-rscore = [scorer.score(mdl) for _, mdl in models]
-print(rscore) #best model SparseLinearDML
-
+#%%#
+##EVI
 
 #Step 1: Modeling the causal mechanism
 model_leish=CausalModel(
         data = Colombia_EVI,
         treatment=['EVI'],
-        outcome=['excess_cases'],
+        outcome=['excess'],
         graph= """graph[directed 1 node[id "EVI" label "EVI"]
-                     node[id "excess_cases" label "excess_cases"]
+                    node[id "excess" label "excess"]
                     node[id "SOI" label "SOI"]
-                    node[id "Equatorial_SOI" label "Equatorial_SOI"]
                     node[id "SST3" label "SST3"]               
                     node[id "SST4" label "SST4"]
                     node[id "SST34" label "SST34"]
@@ -1119,39 +971,60 @@ model_leish=CausalModel(
                     node[id "NATL" label "NATL"]
                     node[id "SATL" label "SATL"]
                     node[id "TROP" label "TROP"]                                      
-                    node[id "forest_percent" label "forest_percent"]
+                    node[id "forest" label "forest"]
+                    node[id "Year" label "Year"]
+                    node[id "Month" label "Month"]
+                    node[id "vectors" label "vectors"]
                                        
-                    edge[source "SOI" target "Temperature"]
-                    edge[source "SOI" target "excess_cases"]
+                    edge[source "SOI" target "EVI"]
+                    edge[source "SOI" target "excess"]
+                                     
+                    edge[source "SST3" target "EVI"]
+                    edge[source "SST3" target "excess"]
                     
-                    edge[source "Equatorial_SOI" target "Temperature"]
-                    edge[source "Equatorial_SOI" target "excess_cases"]
+                    edge[source "SST4" target "EVI"]
+                    edge[source "SST4" target "excess"]
                     
-                    edge[source "SST3" target "Temperature"]
-                    edge[source "SST3" target "excess_cases"]
+                    edge[source "SST34" target "EVI"]
+                    edge[source "SST34" target "excess"]
                     
-                    edge[source "SST4" target "Temperature"]
-                    edge[source "SST4" target "excess_cases"]
+                    edge[source "SST12" target "EVI"]
+                    edge[source "SST12" target "excess"]
                     
-                    edge[source "SST34" target "Temperature"]
-                    edge[source "SST34" target "excess_cases"]
+                    edge[source "NATL" target "EVI"]
+                    edge[source "NATL" target "excess"]
                     
-                    edge[source "SST12" target "Temperature"]
-                    edge[source "SST12" target "excess_cases"]
+                    edge[source "SATL" target "EVI"]
+                    edge[source "SATL" target "excess"]
                     
-                    edge[source "NATL" target "Temperature"]
-                    edge[source "NATL" target "excess_cases"]
-                    
-                    edge[source "SATL" target "Temperature"]
-                    edge[source "SATL" target "excess_cases"]
-                    
-                    edge[source "TROP" target "Temperature"]
-                    edge[source "TROP" target "excess_cases"]
+                    edge[source "TROP" target "EVI"]
+                    edge[source "TROP" target "excess"]
                                                       
-                    edge[source "forest_percent" target "Temperature"]
-                    edge[source "forest_percent" target "excess_cases"]
+                    edge[source "forest" target "EVI"]
+                    edge[source "forest" target "excess"]
                     
-                    edge[source "SOI" target "Equatorial_SOI"]
+                    edge[source "Year" target "EVI"]
+                    edge[source "Year" target "excess"]
+                    edge[source "Year" target "SST3"]
+                    edge[source "Year" target "SST4"]
+                    edge[source "Year" target "SST34"]
+                    edge[source "Year" target "SST12"]
+                    edge[source "Year" target "NATL"]
+                    edge[source "Year" target "SATL"]
+                    edge[source "Year" target "TROP"]
+                    edge[source "Year" target "SOI"]
+                    
+                    edge[source "Month" target "EVI"]
+                    edge[source "Month" target "excess"]
+                    edge[source "Month" target "SST3"]
+                    edge[source "Month" target "SST4"]
+                    edge[source "Month" target "SST34"]
+                    edge[source "Month" target "SST12"]
+                    edge[source "Month" target "NATL"]
+                    edge[source "Month" target "SATL"]
+                    edge[source "Month" target "TROP"]
+                    edge[source "Month" target "SOI"]
+                                        
                     edge[source "SOI" target "SST3"]
                     edge[source "SOI" target "SST4"]
                     edge[source "SOI" target "SST34"]
@@ -1159,15 +1032,7 @@ model_leish=CausalModel(
                     edge[source "SOI" target "NATL"]
                     edge[source "SOI" target "SATL"]
                     edge[source "SOI" target "TROP"]
-                    
-                    edge[source "Equatorial_SOI" target "SST3"]
-                    edge[source "Equatorial_SOI" target "SST4"]
-                    edge[source "Equatorial_SOI" target "SST34"]
-                    edge[source "Equatorial_SOI" target "SST12"]
-                    edge[source "Equatorial_SOI" target "NATL"]
-                    edge[source "Equatorial_SOI" target "SATL"]
-                    edge[source "Equatorial_SOI" target "TROP"]
-                    
+                                       
                     edge[source "SST3" target "SST4"]
                     edge[source "SST3" target "SST34"]
                     edge[source "SST3" target "SST12"]
@@ -1195,26 +1060,41 @@ model_leish=CausalModel(
                     
                     edge[source "SATL" target "TROP"]
                     
-                    edge[source "EVI" target "excess_cases"]]"""
+                    edge[source "SOI" target "vectors"]
+                    edge[source "SST3" target "vectors"]
+                    edge[source "SST4" target "vectors"]
+                    edge[source "SST34" target "vectors"]
+                    edge[source "SST12" target "vectors"]
+                    edge[source "NATL" target "vectors"]
+                    edge[source "SATL" target "vectors"]
+                    edge[source "TROP" target "vectors"]
+                    edge[source "forest" target "vectors"]
+                    edge[source "EVI" target "vectors"]
+                    edge[source "vectors" target "excess"]
+                    
+                    edge[source "EVI" target "excess"]]"""
                     )
-        
-        
-        
-#view model 
-#model_leish.view_model()
+    
 
 #Step 2: Identifying effects
 identified_estimand_EVI = model_leish.identify_effect(proceed_when_unidentifiable=False)
 print(identified_estimand_EVI)
 
-#Step 3: Estimation of the effect 
-estimate_EVI = SparseLinearDML(model_y=reg1(), model_t=reg2(), discrete_treatment=False,
-                                    featurizer=PolynomialFeatures(degree=2, include_bias=False),
-                                    linear_first_stages=False, cv=3, random_state=123)
+#Step 3: Fit the model
+Colombia_EVI['EVI'] = Colombia_EVI['EVI'].astype(np.uint8)
+Colombia_EVI.EVI = stats.zscore(Colombia_EVI.EVI, nan_policy='omit') 
+Colombia_EVI['EVI'].std() 
+Colombia_EVI['forest'] = Colombia_EVI['forest'].astype(np.uint8)
+Y = Colombia_EVI.excess.to_numpy() 
+T = Colombia_EVI.EVI.to_numpy()
+W = Colombia_EVI[['SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 
+                      'TROP', 'forest', 'Year', 'Month']].to_numpy().reshape(-1, 11)
+X = Colombia_EVI[['forest']].to_numpy()
 
-estimate_EVI = estimate_EVI.dowhy
+estimate_EVI = DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
+                       featurizer=PolynomialFeatures(degree=3),
+                       linear_first_stages=False, cv=3, random_state=999)
 
-# fit the model
 estimate_EVI.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
 
 # predict effect for each sample X
@@ -1228,41 +1108,861 @@ print(ate_EVI)
 ci_EVI = estimate_EVI.ate_interval(X) 
 print(ci_EVI)
 
-#Step 4: Refute the effect
-#with random common cause
-random_EVI = estimate_EVI.refute_estimate(method_name="random_common_cause", random_state=123)
-print(random_EVI)
-
-#with replace a random subset of the data
-subset_EVI = estimate_EVI.refute_estimate(method_name="data_subset_refuter", subset_fraction=0.9, num_simulations=3)
-print(subset_EVI)
-
-#with placebo 
-placebo_EVI = estimate_EVI.refute_estimate(method_name="placebo_treatment_refuter", placebo_type="permute", num_simulations=3)
-print(placebo_EVI)
+# Set values in the df_ATE
+df_ATE.at[5, 'ATE'] = ate_EVI  
+df_ATE.at[5, '95% CI'] = ci_EVI  
+print(df_ATE)
 
 
 
+#%%#
 
-####################
-#Figure 3
-labs = ['Air_temperature',
-        'Soil_temperature',
+#Figure 3A
+labs = ['Air Temperature',
+        'Soil Temperature',
         'Rainfall',
         'Runoff',
-        'Soil_moisture',
+        'Soil Moisture',
         'EVI']
 
-measure = [0.013, '0.040', 0.019, 0.036, 0.048, 0.057]
-lower =   [-0.022, '0.030', 0.015, 0.029, 0.038, '0.050']
-upper =   [0.048, '0.050', 0.023, 0.043, 0.058, 0.064]
+measure = [0.068, 0.067, '0.000', '0.000', 0.077, '0.000']
+lower =   [0.065, 0.064, -0.003, '-0.010', 0.073, -0.002]
+upper =   ['0.070', '0.070', 0.003, '0.010', '0.080', 0.002]
 
 p = EffectMeasurePlot(label=labs, effect_measure=measure, lcl=lower, ucl=upper)
 p.labels(center=0)
 p.colors(pointcolor='r') 
 p.labels(effectmeasure='ATE')  
-p.plot(figsize=(10, 5), t_adjuster=0.075, max_value=0.25, min_value=-0.25)
+p.plot(figsize=(10, 5), t_adjuster=0.075, max_value=0.1, min_value=-0.1)
 plt.tight_layout()
 plt.show()
 
 
+
+
+
+
+
+
+#%%#
+#lag1 
+# Create data frame of ATE results
+df_ATE_lag1 = pd.DataFrame(0, index=range(0, 6), columns=['ATE_lag1', '95% CI'])
+
+# Convert the first column to numpy.float64
+df_ATE_lag1['ATE_lag1'] = df_ATE_lag1['ATE_lag1'].astype(np.float64)
+
+# Convert the second column to tuples of zeros
+df_ATE_lag1['95% CI'] = [(0.0, 0.0)] * 6
+
+# Display the DataFrame
+print(df_ATE_lag1)
+
+
+
+#%%#
+
+##Air Temperature lag1
+
+#Step 3: Fit the model
+Colombia_airtemp['Temp'] = Colombia_airtemp['Temp'].astype(np.uint8)
+Colombia_airtemp.Temp = stats.zscore(Colombia_airtemp.Temp, nan_policy='omit') 
+Colombia_airtemp['Temp'].std() 
+Colombia_airtemp['forest'] = Colombia_airtemp['forest'].astype(np.uint8)
+Y = Colombia_airtemp.lag1_excess.to_numpy() 
+T = Colombia_airtemp.Temp.to_numpy()
+W = Colombia_airtemp[['SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 
+                      'TROP', 'forest', 'Year', 'Month']].to_numpy().reshape(-1, 11)
+X = Colombia_airtemp[['forest']].to_numpy()
+
+estimate_airtemp = DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
+                       featurizer=PolynomialFeatures(degree=3),
+                       linear_first_stages=False, cv=3, random_state=999)
+
+estimate_airtemp.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
+
+# predict effect for each sample X
+estimate_airtemp.effect(X)
+
+# ate
+ate_AirTemp = estimate_airtemp.ate(X) 
+print(ate_AirTemp)
+
+# confidence interval of ate
+ci_AirTemp = estimate_airtemp.ate_interval(X) 
+print(ci_AirTemp)
+
+# Set values in the df_ATE_lag1
+df_ATE_lag1.at[0, 'ATE_lag1'] = ate_AirTemp  
+df_ATE_lag1.at[0, '95% CI'] = ci_AirTemp  
+print(df_ATE_lag1)
+
+
+
+
+#%%#
+
+##Soil_temperature lag1
+
+#Step 3: Fit the model
+Colombia_soiltemp['Soil_temp'] = Colombia_soiltemp['Soil_temp'].astype(np.uint8)
+Colombia_soiltemp.Soil_temp = stats.zscore(Colombia_soiltemp.Soil_temp, nan_policy='omit') 
+Colombia_soiltemp['Soil_temp'].std() 
+Colombia_soiltemp['forest'] = Colombia_soiltemp['forest'].astype(np.uint8)
+Y = Colombia_soiltemp.lag1_excess.to_numpy() 
+T = Colombia_soiltemp.Soil_temp.to_numpy()
+W = Colombia_soiltemp[['SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 
+                      'TROP', 'forest', 'Year', 'Month']].to_numpy().reshape(-1, 11)
+X = Colombia_soiltemp[['forest']].to_numpy()
+
+estimate_Soil_temp = DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
+                       featurizer=PolynomialFeatures(degree=3),
+                       linear_first_stages=False, cv=3, random_state=999)
+
+estimate_Soil_temp.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
+
+# predict effect for each sample X
+estimate_Soil_temp.effect(X)
+
+# ate
+ate_Soil_temp = estimate_Soil_temp.ate(X) 
+print(ate_Soil_temp)
+
+# confidence interval of ate
+ci_Soil_temp = estimate_Soil_temp.ate_interval(X) 
+print(ci_Soil_temp)
+
+# Set values in the df_ATE_lag1
+df_ATE_lag1.at[1, 'ATE_lag1'] = ate_Soil_temp  
+df_ATE_lag1.at[1, '95% CI'] = ci_Soil_temp  
+print(df_ATE_lag1)
+
+
+
+#%%#
+
+##Rainfall lag1
+
+#Step 3: Fit the model
+Colombia_rain['Rain'] = Colombia_rain['Rain'].astype(np.uint8)
+Colombia_rain.Rain = stats.zscore(Colombia_rain.Rain, nan_policy='omit') 
+Colombia_rain['Rain'].std() 
+Colombia_rain['forest'] = Colombia_rain['forest'].astype(np.uint8)
+Y = Colombia_rain.lag1_excess.to_numpy() 
+T = Colombia_rain.Rain.to_numpy()
+W = Colombia_rain[['SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 
+                      'TROP', 'forest', 'Year', 'Month']].to_numpy().reshape(-1, 11)
+X = Colombia_rain[['forest']].to_numpy()
+
+estimate_Rain = DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
+                       featurizer=PolynomialFeatures(degree=3),
+                       linear_first_stages=False, cv=3, random_state=999)
+
+estimate_Rain.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
+
+# predict effect for each sample X
+estimate_Rain.effect(X)
+
+# ate
+ate_Rain = estimate_Rain.ate(X) 
+print(ate_Rain)
+
+# confidence interval of ate
+ci_Rain = estimate_Rain.ate_interval(X) 
+print(ci_Rain)
+
+# Set values in the df_ATE_lag1
+df_ATE_lag1.at[2, 'ATE_lag1'] = ate_Rain  
+df_ATE_lag1.at[2, '95% CI'] = ci_Rain  
+print(df_ATE_lag1)
+
+
+
+#%%#
+
+##Runoff lag1
+
+#Step 3: Fit the model
+Colombia_runoff['Qs'] = Colombia_runoff['Qs'].astype(np.uint8)
+Colombia_runoff.Qs = stats.zscore(Colombia_runoff.Qs, nan_policy='omit') 
+Colombia_runoff['Qs'].std() 
+Colombia_runoff['forest'] = Colombia_runoff['forest'].astype(np.uint8)
+Y = Colombia_runoff.lag1_excess.to_numpy() 
+T = Colombia_runoff.Qs.to_numpy()
+W = Colombia_runoff[['SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 
+                      'TROP', 'forest', 'Year', 'Month']].to_numpy().reshape(-1, 11)
+X = Colombia_runoff[['forest']].to_numpy()
+
+estimate_Qs = DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
+                       featurizer=PolynomialFeatures(degree=3),
+                       linear_first_stages=False, cv=3, random_state=999)
+
+estimate_Qs.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
+
+# predict effect for each sample X
+estimate_Qs.effect(X)
+
+# ate
+ate_Qs = estimate_Qs.ate(X) 
+print(ate_Qs)
+
+# confidence interval of ate
+ci_Qs = estimate_Qs.ate_interval(X) 
+print(ci_Qs)
+
+# Set values in the df_ATE_lag1
+df_ATE_lag1.at[3, 'ATE_lag1'] = ate_Qs  
+df_ATE_lag1.at[3, '95% CI'] = ci_Qs  
+print(df_ATE_lag1)
+
+
+
+#%%#
+##Soil Moisture lag1
+
+#Step 3: Fit the model
+Colombia_soilmoist['Soil_mois'] = Colombia_soilmoist['Soil_mois'].astype(np.uint8)
+Colombia_soilmoist.Soil_mois = stats.zscore(Colombia_soilmoist.Soil_mois, nan_policy='omit') 
+Colombia_soilmoist['Soil_mois'].std() 
+Colombia_soilmoist['forest'] = Colombia_soilmoist['forest'].astype(np.uint8)
+Y = Colombia_soilmoist.lag1_excess.to_numpy() 
+T = Colombia_soilmoist.Soil_mois.to_numpy()
+W = Colombia_soilmoist[['SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 
+                      'TROP', 'forest', 'Year', 'Month']].to_numpy().reshape(-1, 11)
+X = Colombia_soilmoist[['forest']].to_numpy()
+
+estimate_Soil_mois = DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
+                       featurizer=PolynomialFeatures(degree=3),
+                       linear_first_stages=False, cv=3, random_state=999)
+
+estimate_Soil_mois.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
+
+# predict effect for each sample X
+estimate_Soil_mois.effect(X)
+
+# ate
+ate_Soil_mois = estimate_Soil_mois.ate(X) 
+print(ate_Soil_mois)
+
+# confidence interval of ate
+ci_Soil_mois = estimate_Soil_mois.ate_interval(X) 
+print(ci_Soil_mois)
+
+# Set values in the df_ATE_lag1
+df_ATE_lag1.at[4, 'ATE_lag1'] = ate_Soil_mois  
+df_ATE_lag1.at[4, '95% CI'] = ci_Soil_mois  
+print(df_ATE_lag1)
+
+
+
+#%%#
+##EVI lag1
+
+#Step 3: Fit the model
+Colombia_EVI['EVI'] = Colombia_EVI['EVI'].astype(np.uint8)
+Colombia_EVI.EVI = stats.zscore(Colombia_EVI.EVI, nan_policy='omit') 
+Colombia_EVI['EVI'].std() 
+Colombia_EVI['forest'] = Colombia_EVI['forest'].astype(np.uint8)
+Y = Colombia_EVI.lag1_excess.to_numpy() 
+T = Colombia_EVI.EVI.to_numpy()
+W = Colombia_EVI[['SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 
+                      'TROP', 'forest', 'Year', 'Month']].to_numpy().reshape(-1, 11)
+X = Colombia_EVI[['forest']].to_numpy()
+
+estimate_EVI = DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
+                       featurizer=PolynomialFeatures(degree=3),
+                       linear_first_stages=False, cv=3, random_state=999)
+
+estimate_EVI.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
+
+# predict effect for each sample X
+estimate_EVI.effect(X)
+
+# ate
+ate_EVI = estimate_EVI.ate(X) 
+print(ate_EVI)
+
+# confidence interval of ate
+ci_EVI = estimate_EVI.ate_interval(X) 
+print(ci_EVI)
+
+# Set values in the df_ATE_lag1
+df_ATE_lag1.at[5, 'ATE_lag1'] = ate_EVI  
+df_ATE_lag1.at[5, '95% CI'] = ci_EVI  
+print(df_ATE_lag1)
+
+
+
+#%%#
+
+#Figure 3B
+labs = ['Air Temperature',
+        'Soil Temperature',
+        'Rainfall',
+        'Runoff',
+        'Soil Moisture',
+        'EVI']
+
+measure = [0.068, 0.067, -0.002, '0.000', 0.077, '0.000']
+lower =   [0.066, 0.064, -0.005, -0.014, 0.074, -0.003]
+upper =   [0.071, '0.070', 0.001, 0.014, 0.081, 0.003]
+
+p = EffectMeasurePlot(label=labs, effect_measure=measure, lcl=lower, ucl=upper)
+p.labels(center=0)
+p.colors(pointcolor='r') 
+p.labels(effectmeasure='ATE')  
+p.plot(figsize=(11, 5.5), t_adjuster=0.075, max_value=0.1, min_value=-0.1)
+plt.tight_layout
+
+
+
+
+
+
+
+#%%#
+#lag2
+# Create data frame of ATE results
+df_ATE_lag2 = pd.DataFrame(0, index=range(0, 6), columns=['ATE_lag2', '95% CI'])
+
+# Convert the first column to numpy.float64
+df_ATE_lag2['ATE_lag2'] = df_ATE_lag2['ATE_lag2'].astype(np.float64)
+
+# Convert the second column to tuples of zeros
+df_ATE_lag2['95% CI'] = [(0.0, 0.0)] * 6
+
+# Display the DataFrame
+print(df_ATE_lag2)
+
+
+
+#%%#
+
+##Air Temperature lag2
+
+#Step 3: Fit the model
+Colombia_airtemp['Temp'] = Colombia_airtemp['Temp'].astype(np.uint8)
+Colombia_airtemp.Temp = stats.zscore(Colombia_airtemp.Temp, nan_policy='omit') 
+Colombia_airtemp['Temp'].std() 
+Colombia_airtemp['forest'] = Colombia_airtemp['forest'].astype(np.uint8)
+Y = Colombia_airtemp.lag2_excess.to_numpy() 
+T = Colombia_airtemp.Temp.to_numpy()
+W = Colombia_airtemp[['SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 
+                      'TROP', 'forest', 'Year', 'Month']].to_numpy().reshape(-1, 11)
+X = Colombia_airtemp[['forest']].to_numpy()
+
+estimate_airtemp = DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
+                       featurizer=PolynomialFeatures(degree=3),
+                       linear_first_stages=False, cv=3, random_state=999)
+
+estimate_airtemp.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
+
+# predict effect for each sample X
+estimate_airtemp.effect(X)
+
+# ate
+ate_AirTemp = estimate_airtemp.ate(X) 
+print(ate_AirTemp)
+
+# confidence interval of ate
+ci_AirTemp = estimate_airtemp.ate_interval(X) 
+print(ci_AirTemp)
+
+# Set values in the df_ATE_lag2
+df_ATE_lag2.at[0, 'ATE_lag2'] = ate_AirTemp  
+df_ATE_lag2.at[0, '95% CI'] = ci_AirTemp  
+print(df_ATE_lag2)
+
+
+
+
+#%%#
+
+##Soil_temperature lag2
+
+#Step 3: Fit the model
+Colombia_soiltemp['Soil_temp'] = Colombia_soiltemp['Soil_temp'].astype(np.uint8)
+Colombia_soiltemp.Soil_temp = stats.zscore(Colombia_soiltemp.Soil_temp, nan_policy='omit') 
+Colombia_soiltemp['Soil_temp'].std() 
+Colombia_soiltemp['forest'] = Colombia_soiltemp['forest'].astype(np.uint8)
+Y = Colombia_soiltemp.lag2_excess.to_numpy() 
+T = Colombia_soiltemp.Soil_temp.to_numpy()
+W = Colombia_soiltemp[['SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 
+                      'TROP', 'forest', 'Year', 'Month']].to_numpy().reshape(-1, 11)
+X = Colombia_soiltemp[['forest']].to_numpy()
+
+estimate_Soil_temp = DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
+                       featurizer=PolynomialFeatures(degree=3),
+                       linear_first_stages=False, cv=3, random_state=999)
+
+estimate_Soil_temp.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
+
+# predict effect for each sample X
+estimate_Soil_temp.effect(X)
+
+# ate
+ate_Soil_temp = estimate_Soil_temp.ate(X) 
+print(ate_Soil_temp)
+
+# confidence interval of ate
+ci_Soil_temp = estimate_Soil_temp.ate_interval(X) 
+print(ci_Soil_temp)
+
+# Set values in the df_ATE_lag2
+df_ATE_lag2.at[1, 'ATE_lag2'] = ate_Soil_temp  
+df_ATE_lag2.at[1, '95% CI'] = ci_Soil_temp  
+print(df_ATE_lag2)
+
+
+
+#%%#
+
+##Rainfall lag2
+
+#Step 3: Fit the model
+Colombia_rain['Rain'] = Colombia_rain['Rain'].astype(np.uint8)
+Colombia_rain.Rain = stats.zscore(Colombia_rain.Rain, nan_policy='omit') 
+Colombia_rain['Rain'].std() 
+Colombia_rain['forest'] = Colombia_rain['forest'].astype(np.uint8)
+Y = Colombia_rain.lag2_excess.to_numpy() 
+T = Colombia_rain.Rain.to_numpy()
+W = Colombia_rain[['SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 
+                      'TROP', 'forest', 'Year', 'Month']].to_numpy().reshape(-1, 11)
+X = Colombia_rain[['forest']].to_numpy()
+
+estimate_Rain = DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
+                       featurizer=PolynomialFeatures(degree=3),
+                       linear_first_stages=False, cv=3, random_state=999)
+
+estimate_Rain.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
+
+# predict effect for each sample X
+estimate_Rain.effect(X)
+
+# ate
+ate_Rain = estimate_Rain.ate(X) 
+print(ate_Rain)
+
+# confidence interval of ate
+ci_Rain = estimate_Rain.ate_interval(X) 
+print(ci_Rain)
+
+# Set values in the df_ATE_lag2
+df_ATE_lag2.at[2, 'ATE_lag2'] = ate_Rain  
+df_ATE_lag2.at[2, '95% CI'] = ci_Rain  
+print(df_ATE_lag2)
+
+
+
+#%%#
+
+##Runoff lag2
+
+#Step 3: Fit the model
+Colombia_runoff['Qs'] = Colombia_runoff['Qs'].astype(np.uint8)
+Colombia_runoff.Qs = stats.zscore(Colombia_runoff.Qs, nan_policy='omit') 
+Colombia_runoff['Qs'].std() 
+Colombia_runoff['forest'] = Colombia_runoff['forest'].astype(np.uint8)
+Y = Colombia_runoff.lag2_excess.to_numpy() 
+T = Colombia_runoff.Qs.to_numpy()
+W = Colombia_runoff[['SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 
+                      'TROP', 'forest', 'Year', 'Month']].to_numpy().reshape(-1, 11)
+X = Colombia_runoff[['forest']].to_numpy()
+
+estimate_Qs = DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
+                       featurizer=PolynomialFeatures(degree=3),
+                       linear_first_stages=False, cv=3, random_state=999)
+
+estimate_Qs.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
+
+# predict effect for each sample X
+estimate_Qs.effect(X)
+
+# ate
+ate_Qs = estimate_Qs.ate(X) 
+print(ate_Qs)
+
+# confidence interval of ate
+ci_Qs = estimate_Qs.ate_interval(X) 
+print(ci_Qs)
+
+# Set values in the df_ATE_lag2
+df_ATE_lag2.at[3, 'ATE_lag2'] = ate_Qs  
+df_ATE_lag2.at[3, '95% CI'] = ci_Qs  
+print(df_ATE_lag2)
+
+
+
+#%%#
+##Soil Moisture lag2
+
+#Step 3: Fit the model
+Colombia_soilmoist['Soil_mois'] = Colombia_soilmoist['Soil_mois'].astype(np.uint8)
+Colombia_soilmoist.Soil_mois = stats.zscore(Colombia_soilmoist.Soil_mois, nan_policy='omit') 
+Colombia_soilmoist['Soil_mois'].std() 
+Colombia_soilmoist['forest'] = Colombia_soilmoist['forest'].astype(np.uint8)
+Y = Colombia_soilmoist.lag2_excess.to_numpy() 
+T = Colombia_soilmoist.Soil_mois.to_numpy()
+W = Colombia_soilmoist[['SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 
+                      'TROP', 'forest', 'Year', 'Month']].to_numpy().reshape(-1, 11)
+X = Colombia_soilmoist[['forest']].to_numpy()
+
+estimate_Soil_mois = DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
+                       featurizer=PolynomialFeatures(degree=3),
+                       linear_first_stages=False, cv=3, random_state=999)
+
+estimate_Soil_mois.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
+
+# predict effect for each sample X
+estimate_Soil_mois.effect(X)
+
+# ate
+ate_Soil_mois = estimate_Soil_mois.ate(X) 
+print(ate_Soil_mois)
+
+# confidence interval of ate
+ci_Soil_mois = estimate_Soil_mois.ate_interval(X) 
+print(ci_Soil_mois)
+
+# Set values in the df_ATE_lag2
+df_ATE_lag2.at[4, 'ATE_lag2'] = ate_Soil_mois  
+df_ATE_lag2.at[4, '95% CI'] = ci_Soil_mois  
+print(df_ATE_lag2)
+
+
+
+#%%#
+##EVI lag2
+
+#Step 3: Fit the model
+Colombia_EVI['EVI'] = Colombia_EVI['EVI'].astype(np.uint8)
+Colombia_EVI.EVI = stats.zscore(Colombia_EVI.EVI, nan_policy='omit') 
+Colombia_EVI['EVI'].std() 
+Colombia_EVI['forest'] = Colombia_EVI['forest'].astype(np.uint8)
+Y = Colombia_EVI.lag2_excess.to_numpy() 
+T = Colombia_EVI.EVI.to_numpy()
+W = Colombia_EVI[['SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 
+                      'TROP', 'forest', 'Year', 'Month']].to_numpy().reshape(-1, 11)
+X = Colombia_EVI[['forest']].to_numpy()
+
+estimate_EVI = DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
+                       featurizer=PolynomialFeatures(degree=3),
+                       linear_first_stages=False, cv=3, random_state=999)
+
+estimate_EVI.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
+
+# predict effect for each sample X
+estimate_EVI.effect(X)
+
+# ate
+ate_EVI = estimate_EVI.ate(X) 
+print(ate_EVI)
+
+# confidence interval of ate
+ci_EVI = estimate_EVI.ate_interval(X) 
+print(ci_EVI)
+
+# Set values in the df_ATE_lag2
+df_ATE_lag2.at[5, 'ATE_lag2'] = ate_EVI  
+df_ATE_lag2.at[5, '95% CI'] = ci_EVI  
+print(df_ATE_lag2)
+
+
+
+#%%#
+
+#Figure 3C
+labs = ['Air Temperature',
+        'Soil Temperature',
+        'Rainfall',
+        'Runoff',
+        'Soil Moisture',
+        'EVI']
+
+measure = [0.069, 0.068, -0.002, -0.008, 0.078, -0.001]
+lower =   [0.066, 0.066, -0.005, -0.022, 0.074, -0.004]
+upper =   [0.072, '0.070', 0.001, 0.006, 0.082, 0.002]
+
+p = EffectMeasurePlot(label=labs, effect_measure=measure, lcl=lower, ucl=upper)
+p.labels(center=0)
+p.colors(pointcolor='r') 
+p.labels(effectmeasure='ATE')  
+p.plot(figsize=(11, 5.5), t_adjuster=0.075, max_value=0.1, min_value=-0.1)
+plt.tight_layout
+
+
+
+
+
+
+
+
+#%%#
+#lag3
+# Create data frame of ATE results
+df_ATE_lag3 = pd.DataFrame(0, index=range(0, 6), columns=['ATE_lag3', '95% CI'])
+
+# Convert the first column to numpy.float64
+df_ATE_lag3['ATE_lag3'] = df_ATE_lag3['ATE_lag3'].astype(np.float64)
+
+# Convert the second column to tuples of zeros
+df_ATE_lag3['95% CI'] = [(0.0, 0.0)] * 6
+
+# Display the DataFrame
+print(df_ATE_lag3)
+
+
+
+#%%#
+
+##Air Temperature lag3
+
+#Step 3: Fit the model
+Colombia_airtemp['Temp'] = Colombia_airtemp['Temp'].astype(np.uint8)
+Colombia_airtemp.Temp = stats.zscore(Colombia_airtemp.Temp, nan_policy='omit') 
+Colombia_airtemp['Temp'].std() 
+Colombia_airtemp['forest'] = Colombia_airtemp['forest'].astype(np.uint8)
+Y = Colombia_airtemp.lag3_excess.to_numpy() 
+T = Colombia_airtemp.Temp.to_numpy()
+W = Colombia_airtemp[['SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 
+                      'TROP', 'forest', 'Year', 'Month']].to_numpy().reshape(-1, 11)
+X = Colombia_airtemp[['forest']].to_numpy()
+
+estimate_airtemp = DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
+                       featurizer=PolynomialFeatures(degree=3),
+                       linear_first_stages=False, cv=3, random_state=999)
+
+estimate_airtemp.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
+
+# predict effect for each sample X
+estimate_airtemp.effect(X)
+
+# ate
+ate_AirTemp = estimate_airtemp.ate(X) 
+print(ate_AirTemp)
+
+# confidence interval of ate
+ci_AirTemp = estimate_airtemp.ate_interval(X) 
+print(ci_AirTemp)
+
+# Set values in the df_ATE_lag3
+df_ATE_lag3.at[0, 'ATE_lag3'] = ate_AirTemp  
+df_ATE_lag3.at[0, '95% CI'] = ci_AirTemp  
+print(df_ATE_lag3)
+
+
+
+
+#%%#
+
+##Soil_temperature lag3
+
+#Step 3: Fit the model
+Colombia_soiltemp['Soil_temp'] = Colombia_soiltemp['Soil_temp'].astype(np.uint8)
+Colombia_soiltemp.Soil_temp = stats.zscore(Colombia_soiltemp.Soil_temp, nan_policy='omit') 
+Colombia_soiltemp['Soil_temp'].std() 
+Colombia_soiltemp['forest'] = Colombia_soiltemp['forest'].astype(np.uint8)
+Y = Colombia_soiltemp.lag3_excess.to_numpy() 
+T = Colombia_soiltemp.Soil_temp.to_numpy()
+W = Colombia_soiltemp[['SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 
+                      'TROP', 'forest', 'Year', 'Month']].to_numpy().reshape(-1, 11)
+X = Colombia_soiltemp[['forest']].to_numpy()
+
+estimate_Soil_temp = DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
+                       featurizer=PolynomialFeatures(degree=3),
+                       linear_first_stages=False, cv=3, random_state=999)
+
+estimate_Soil_temp.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
+
+# predict effect for each sample X
+estimate_Soil_temp.effect(X)
+
+# ate
+ate_Soil_temp = estimate_Soil_temp.ate(X) 
+print(ate_Soil_temp)
+
+# confidence interval of ate
+ci_Soil_temp = estimate_Soil_temp.ate_interval(X) 
+print(ci_Soil_temp)
+
+# Set values in the df_ATE_lag3
+df_ATE_lag3.at[1, 'ATE_lag3'] = ate_Soil_temp  
+df_ATE_lag3.at[1, '95% CI'] = ci_Soil_temp  
+print(df_ATE_lag3)
+
+
+
+#%%#
+
+##Rainfall lag3
+
+#Step 3: Fit the model
+Colombia_rain['Rain'] = Colombia_rain['Rain'].astype(np.uint8)
+Colombia_rain.Rain = stats.zscore(Colombia_rain.Rain, nan_policy='omit') 
+Colombia_rain['Rain'].std() 
+Colombia_rain['forest'] = Colombia_rain['forest'].astype(np.uint8)
+Y = Colombia_rain.lag3_excess.to_numpy() 
+T = Colombia_rain.Rain.to_numpy()
+W = Colombia_rain[['SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 
+                      'TROP', 'forest', 'Year', 'Month']].to_numpy().reshape(-1, 11)
+X = Colombia_rain[['forest']].to_numpy()
+
+estimate_Rain = DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
+                       featurizer=PolynomialFeatures(degree=3),
+                       linear_first_stages=False, cv=3, random_state=999)
+
+estimate_Rain.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
+
+# predict effect for each sample X
+estimate_Rain.effect(X)
+
+# ate
+ate_Rain = estimate_Rain.ate(X) 
+print(ate_Rain)
+
+# confidence interval of ate
+ci_Rain = estimate_Rain.ate_interval(X) 
+print(ci_Rain)
+
+# Set values in the df_ATE_lag3
+df_ATE_lag3.at[2, 'ATE_lag3'] = ate_Rain  
+df_ATE_lag3.at[2, '95% CI'] = ci_Rain  
+print(df_ATE_lag3)
+
+
+
+#%%#
+
+##Runoff lag3
+
+#Step 3: Fit the model
+Colombia_runoff['Qs'] = Colombia_runoff['Qs'].astype(np.uint8)
+Colombia_runoff.Qs = stats.zscore(Colombia_runoff.Qs, nan_policy='omit') 
+Colombia_runoff['Qs'].std() 
+Colombia_runoff['forest'] = Colombia_runoff['forest'].astype(np.uint8)
+Y = Colombia_runoff.lag3_excess.to_numpy() 
+T = Colombia_runoff.Qs.to_numpy()
+W = Colombia_runoff[['SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 
+                      'TROP', 'forest', 'Year', 'Month']].to_numpy().reshape(-1, 11)
+X = Colombia_runoff[['forest']].to_numpy()
+
+estimate_Qs = DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
+                       featurizer=PolynomialFeatures(degree=3),
+                       linear_first_stages=False, cv=3, random_state=999)
+
+estimate_Qs.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
+
+# predict effect for each sample X
+estimate_Qs.effect(X)
+
+# ate
+ate_Qs = estimate_Qs.ate(X) 
+print(ate_Qs)
+
+# confidence interval of ate
+ci_Qs = estimate_Qs.ate_interval(X) 
+print(ci_Qs)
+
+# Set values in the df_ATE_lag3
+df_ATE_lag3.at[3, 'ATE_lag3'] = ate_Qs  
+df_ATE_lag3.at[3, '95% CI'] = ci_Qs  
+print(df_ATE_lag3)
+
+
+
+#%%#
+##Soil Moisture lag3
+
+#Step 3: Fit the model
+Colombia_soilmoist['Soil_mois'] = Colombia_soilmoist['Soil_mois'].astype(np.uint8)
+Colombia_soilmoist.Soil_mois = stats.zscore(Colombia_soilmoist.Soil_mois, nan_policy='omit') 
+Colombia_soilmoist['Soil_mois'].std() 
+Colombia_soilmoist['forest'] = Colombia_soilmoist['forest'].astype(np.uint8)
+Y = Colombia_soilmoist.lag3_excess.to_numpy() 
+T = Colombia_soilmoist.Soil_mois.to_numpy()
+W = Colombia_soilmoist[['SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 
+                      'TROP', 'forest', 'Year', 'Month']].to_numpy().reshape(-1, 11)
+X = Colombia_soilmoist[['forest']].to_numpy()
+
+estimate_Soil_mois = DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
+                       featurizer=PolynomialFeatures(degree=3),
+                       linear_first_stages=False, cv=3, random_state=999)
+
+estimate_Soil_mois.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
+
+# predict effect for each sample X
+estimate_Soil_mois.effect(X)
+
+# ate
+ate_Soil_mois = estimate_Soil_mois.ate(X) 
+print(ate_Soil_mois)
+
+# confidence interval of ate
+ci_Soil_mois = estimate_Soil_mois.ate_interval(X) 
+print(ci_Soil_mois)
+
+# Set values in the df_ATE_lag3
+df_ATE_lag3.at[4, 'ATE_lag3'] = ate_Soil_mois  
+df_ATE_lag3.at[4, '95% CI'] = ci_Soil_mois  
+print(df_ATE_lag3)
+
+
+
+#%%#
+##EVI lag3
+
+#Step 3: Fit the model
+Colombia_EVI['EVI'] = Colombia_EVI['EVI'].astype(np.uint8)
+Colombia_EVI.EVI = stats.zscore(Colombia_EVI.EVI, nan_policy='omit') 
+Colombia_EVI['EVI'].std() 
+Colombia_EVI['forest'] = Colombia_EVI['forest'].astype(np.uint8)
+Y = Colombia_EVI.lag3_excess.to_numpy() 
+T = Colombia_EVI.EVI.to_numpy()
+W = Colombia_EVI[['SOI', 'SST3', 'SST4', 'SST34', 'SST12', 'NATL', 'SATL', 
+                      'TROP', 'forest', 'Year', 'Month']].to_numpy().reshape(-1, 11)
+X = Colombia_EVI[['forest']].to_numpy()
+
+estimate_EVI = DML(model_y=reg1(), model_t=reg2(), model_final=LassoCV(), discrete_treatment=False,
+                       featurizer=PolynomialFeatures(degree=3),
+                       linear_first_stages=False, cv=3, random_state=999)
+
+estimate_EVI.fit(Y=Y, T=T, X=X, W=W, inference='bootstrap')  
+
+# predict effect for each sample X
+estimate_EVI.effect(X)
+
+# ate
+ate_EVI = estimate_EVI.ate(X) 
+print(ate_EVI)
+
+# confidence interval of ate
+ci_EVI = estimate_EVI.ate_interval(X) 
+print(ci_EVI)
+
+# Set values in the df_ATE_lag3
+df_ATE_lag3.at[5, 'ATE_lag3'] = ate_EVI  
+df_ATE_lag3.at[5, '95% CI'] = ci_EVI  
+print(df_ATE_lag3)
+
+
+
+#%%#
+
+#Figure 3D
+labs = ['Air Temperature',
+        'Soil Temperature',
+        'Rainfall',
+        'Runoff',
+        'Soil Moisture',
+        'EVI']
+
+measure = [0.069, 0.068, '0.000', '0.000', '0.080', '0.000']
+lower =   [0.066, 0.066, -0.003, -0.013, 0.077, -0.002]
+upper =   [0.071, 0.071, 0.003, 0.013, 0.083, 0.002]
+
+p = EffectMeasurePlot(label=labs, effect_measure=measure, lcl=lower, ucl=upper)
+p.labels(center=0)
+p.colors(pointcolor='r') 
+p.labels(effectmeasure='ATE')  
+p.plot(figsize=(11, 5.5), t_adjuster=0.075, max_value=0.1, min_value=-0.1)
+plt.tight_layout
