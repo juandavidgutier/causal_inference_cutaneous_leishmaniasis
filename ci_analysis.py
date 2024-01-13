@@ -1,6 +1,6 @@
 ###############################################################################
 # Code for the paper:
-#   "Causal association of environmental variables on the occurrence of excesss of 
+#   "Causal association between environmental variables and the excess cases of
 #    cutaneous leishmaniasis in Colombia: Are we looking to the wrong side?"
 #    Gutiérrez, Avila and Altamiranda 
 #   
@@ -89,14 +89,7 @@ print(df_ATE)
 #%%#
 
 #import data
-#data_col = pd.read_csv("https://raw.githubusercontent.com/juandavidgutier/causal_inference_cutaneous_leishmaniasis/main/dataset_leish.csv", encoding='latin-1') 
-
-#import dask.dataframe as dd
-
-data_col = pd.read_csv("D:/clases/UDES/articulo leishmaniasis/causal_inference/nuevo/data_final.csv", encoding='latin-1') 
-#data_col = dd.read_csv("D:/clases/UDES/articulo leishmaniasis/causal_inference/nuevo/data_final.csv") 
-
-
+data_col = pd.read_csv("D:/data_final.csv", encoding='latin-1') 
 data_col = data_col[(data_col['Year'] <= 2019)]
 
 #potential confounders as binary
