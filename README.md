@@ -1,6 +1,6 @@
 # Project Title
 
-Causal association of environmental variables on the occurrence of outbreaks of cutaneous leishmaniasis in Colombia: Are we looking to the wrong side?
+Causal association between environmental variables and the excess cases of cutaneous leishmaniasis in Colombia: Are we looking to the wrong side?
 
 ## Description
 
